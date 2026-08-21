@@ -996,6 +996,21 @@
         }
 
 
+        async function updateGroupMembershipHeader(groupId) {
+            if (currentChatType !== 'group' || targetUid !== groupId) return;
+
+            const memberSnap = await db.ref(`groups/${groupId}/members/${myUid}`).once('value');
+            const statusEl = document.getElementById('currentChatStatus');
+
+            if (!memberSnap.exists()) {
+                statusEl.innerText = 'You left this group • Read only';
+                statusEl.style.color = '#f59e0b';
+            } else {
+                statusEl.innerText = 'Group Chat 👥';
+                statusEl.style.color = '';
+            }
+        }
+
         function switchGroup(groupId, title) {
             currentChatType = 'group';
             targetUid = groupId;
@@ -1003,6 +1018,7 @@
 
             document.getElementById('currentChatTitle').innerText = title;
             document.getElementById('currentChatStatus').innerText = 'Group Chat 👥';
+            updateGroupMembershipHeader(groupId);
             window.currentGroupCreatedBy = '';
             db.ref(`groups/${groupId}/createdBy`).once('value').then(s => { window.currentGroupCreatedBy = s.val() || ''; setChatManageButton(); });
 
@@ -1487,7 +1503,10 @@
                 let htmlOut = `
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                         <div class="manage-section-title" style="margin:0;">Members (${Object.keys(members).length})</div>
-                        <button class="manage-action-btn" onclick="showGroupMemberInfo()">Group Info</button>
+                        <div style="display:flex;gap:5px;">
+                            <button class="manage-action-btn" onclick="showGroupMemberInfo()">Group Info</button>
+                            <button class="manage-action-btn danger" onclick="leaveCurrentGroup()">Leave</button>
+                        </div>
                     </div>`;
 
                 Object.keys(members).forEach(uid => {
@@ -1501,6 +1520,7 @@
                                 <div class="manage-user-name">${escapeHTML(p.name || uid)}</div>
                                 <div class="manage-user-role">${isLeader ? 'Group leader' : 'Member'}</div>
                             </div>
+                            <button class="manage-action-btn" onclick="openPrivateChatFromGroup('${uid}')">Message</button>
                             ${isOwner && uid !== myUid
                                 ? `<button class="manage-action-btn danger" onclick="removeGroupMember('${targetUid}','${uid}')">Remove</button>`
                                 : ''}
@@ -1622,6 +1642,48 @@
             }
         }
 
+
+        async function leaveCurrentGroup() {
+            if (currentChatType !== 'group') return;
+
+            const groupId = targetUid;
+            const groupName = targetName;
+
+            if (!confirm(`"${groupName}" থেকে বের হয়ে যেতে চান?`)) return;
+
+            try {
+                // Remove active membership so the user can no longer send messages.
+                await db.ref(`groups/${groupId}/members/${myUid}`).remove();
+
+                // Keep the group in the user's sidebar with a removed/left state.
+                await db.ref(`group_members/${myUid}/${groupId}`).update({
+                    name: groupName,
+                    left: true,
+                    removed: true,
+                    leftAt: firebase.database.ServerValue.TIMESTAMP
+                });
+
+                await addGroupSystemMessage(
+                    groupId,
+                    `${myName} left the group`
+                );
+
+                closeChatManage();
+
+                // Return to global chat after leaving.
+                switchChat('global', '🌐 গ্লোবাল চ্যাট রুম');
+            } catch (e) {
+                console.error(e);
+                alert('Group থেকে leave করা যায়নি। Firebase Rules check করুন।');
+            }
+        }
+
+        function openPrivateChatFromGroup(uid) {
+            const profile = allUserProfiles[uid] || {name: 'Unknown User'};
+            closeChatManage();
+            switchChat(uid, profile.name || 'User');
+        }
+
         async function blockUser(uid) {
             if (!confirm('এই user-কে block করবেন?')) return;
             try {
@@ -1689,6 +1751,7 @@
                                 </div>
                                 <div class="group-member-info-role">${isLeader ? 'Group leader' : 'Member'}</div>
                             </div>
+                            ${uid !== myUid ? `<button class="manage-action-btn" onclick="openPrivateChatFromGroup('${uid}')">Message</button>` : ''}
                         </div>`;
                 }
 
