@@ -51,7 +51,18 @@
         
         .avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--panel); display: flex; justify-content: center; align-items: center; font-weight: bold; position: relative; border: 1px solid var(--border-color); flex-shrink: 0; overflow: hidden; }
         .avatar img { width: 100%; height: 100%; object-fit: cover; }
-        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #25d366; position: absolute; bottom: 0; right: 0; border: 2px solid var(--bg-side); }
+        .status-dot {
+            width: 11px;
+            height: 11px;
+            border-radius: 50%;
+            background: #25d366;
+            position: absolute;
+            bottom: 1px;
+            right: 1px;
+            border: 2px solid var(--bg-side);
+            box-shadow: 0 0 0 1px rgba(37,211,102,.25);
+            z-index: 3;
+        }
         
         .chat-info { flex: 1; overflow: hidden; }
         .chat-info .title { font-weight: 500; font-size: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;}
@@ -275,6 +286,7 @@
             updateMyUI();
             setupPresence();
             listenToSidebarData();
+            startPresenceRefresh();
             switchChat('global', '🌐 গ্লোবাল চ্যাট রুম');
         }
 
@@ -375,19 +387,30 @@
             const connectedRef = db.ref('.info/connected');
 
             connectedRef.on('value', (snap) => {
-                if (snap.val() === true) {
-                    myPresenceRef.onDisconnect().remove();
-                    myUserRef.child('lastSeen').onDisconnect().set(firebase.database.ServerValue.TIMESTAMP);
+                if (snap.val() !== true) return;
 
-                    myPresenceRef.set({
-                        uid: myUid,
-                        lastSeen: firebase.database.ServerValue.TIMESTAMP
-                    });
+                // Firebase removes this record when this tab/browser disconnects.
+                myPresenceRef.onDisconnect().remove();
 
-                    myUserRef.update({
-                        lastSeen: firebase.database.ServerValue.TIMESTAMP
-                    });
-                }
+                // Save last seen when the user goes offline.
+                myUserRef.child('lastSeen').onDisconnect().set(firebase.database.ServerValue.TIMESTAMP);
+
+                // Set online immediately.
+                myPresenceRef.set({
+                    uid: myUid,
+                    online: true,
+                    lastSeen: firebase.database.ServerValue.TIMESTAMP
+                });
+
+                myUserRef.update({
+                    lastSeen: firebase.database.ServerValue.TIMESTAMP
+                });
+            });
+
+            // Extra safety for page/tab close or navigation.
+            window.addEventListener('beforeunload', () => {
+                myPresenceRef.remove();
+                myUserRef.child('lastSeen').set(firebase.database.ServerValue.TIMESTAMP);
             });
         }
 
@@ -414,6 +437,16 @@
             const lastSeen = profile.lastSeen || onlineUsers[targetUid]?.lastSeen;
 
             statusEl.textContent = online ? 'Active now' : formatLastSeen(lastSeen);
+        }
+
+        let presenceRefreshInterval = null;
+
+        function startPresenceRefresh() {
+            if (presenceRefreshInterval) clearInterval(presenceRefreshInterval);
+            presenceRefreshInterval = setInterval(() => {
+                renderSidebar();
+                updateChatHeaderPresence();
+            }, 5000);
         }
 
         function listenToSidebarData() {
@@ -494,7 +527,7 @@
 
             // অনলাইন ইউজার যারা মেসেজ দেয়নি
             Object.keys(onlineUsers).forEach(uid => {
-                if (uid !== myUid && !recentChats[uid]) {
+                if (uid !== myUid && onlineUsers[uid] && !recentChats[uid]) {
                     const p = allUserProfiles[uid] || { name: 'User', avatar: '👤' };
                     sidebarItems.push({
                         uid: uid,
@@ -515,7 +548,7 @@
                 const timeStr = u.timestamp ? new Date(u.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
                 const unreadBadge = u.unread ? `<div class="unread-badge">New</div>` : '';
                 const subtitleClass = u.unread ? 'subtitle unread' : 'subtitle';
-                const statusDot = u.isOnline ? `<div class="status-dot"></div>` : '';
+                const statusDot = u.isOnline ? `<div class="status-dot" title="Active now" aria-label="Active now"></div>` : '';
 
                 const li = document.createElement('li');
                 li.className = `chat-item ${targetUid === u.uid ? 'active' : ''}`;
