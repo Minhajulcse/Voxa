@@ -636,6 +636,19 @@
         }
 
 
+        function scrollMessagesToBottom(force = false) {
+            const box = document.getElementById('messagesBox');
+            if (!box) return;
+
+            // New chat should open at the latest message.
+            // For live updates, only force-scroll if requested.
+            if (force) {
+                requestAnimationFrame(() => {
+                    box.scrollTop = box.scrollHeight;
+                });
+            }
+        }
+
         function switchChat(type, title) {
             currentChatType = (type === 'global') ? 'global' : 'private';
             targetUid = (type === 'global') ? null : type;
@@ -661,16 +674,16 @@
 
             activeListenerRef = db.ref(chatPath).limitToLast(60);
 
-            // value listener is used so sent/delivered/seen status updates live.
-            activeListenerRef.on('value', (snapshot) => {
+            // Always open a conversation at the newest loaded message.
+            activeListenerRef.once('value').then((snapshot) => {
                 messagesBox.innerHTML = '';
+
                 snapshot.forEach(child => {
                     const msg = child.val() || {};
                     msg._key = child.key;
 
                     if (deletedMessages[messageLocalKey(chatPath, child.key)]) return;
 
-                    // Opening the conversation means incoming messages are seen.
                     if (currentChatType === 'private' &&
                         msg.senderUid === targetUid &&
                         !msg.deleted &&
@@ -683,9 +696,36 @@
 
                     renderMessage(msg, chatPath);
                 });
+
+                scrollMessagesToBottom(true);
             });
 
-            // Mark the latest recent message as seen when opening the chat.
+            // Keep listening for new messages after initial load.
+            activeListenerRef.on('child_added', (snapshot) => {
+                // Initial messages were rendered by once(). Avoid duplicates.
+                if (messagesBox.querySelector(`[data-message-key="${CSS.escape(snapshot.key)}"]`)) return;
+
+                const msg = snapshot.val() || {};
+                msg._key = snapshot.key;
+
+                if (deletedMessages[messageLocalKey(chatPath, snapshot.key)]) return;
+
+                if (currentChatType === 'private' &&
+                    msg.senderUid === targetUid &&
+                    !msg.deleted &&
+                    msg.status !== 'seen') {
+                    db.ref(`${chatPath}/${snapshot.key}`).update({
+                        status: 'seen',
+                        seenAt: firebase.database.ServerValue.TIMESTAMP
+                    });
+                }
+
+                renderMessage(msg, chatPath);
+
+                // Incoming or sent new message: WhatsApp-like jump to the latest message.
+                scrollMessagesToBottom(true);
+            });
+
             if (currentChatType === 'private' && recentChats[targetUid]?.messageId) {
                 db.ref(`messages/private/${[myUid, targetUid].sort().join('_')}/${recentChats[targetUid].messageId}`).update({
                     status: 'seen',
@@ -744,6 +784,7 @@
             db.ref().update(updates)
                 .then(() => {
                     input.value = '';
+                    scrollMessagesToBottom(true);
                 })
                 .catch(error => {
                     console.error(error);
