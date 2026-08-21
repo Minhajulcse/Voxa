@@ -306,6 +306,32 @@
             margin-left: 6px;
             flex-shrink: 0;
         }
+
+        .group-system-message {
+            align-self:center !important;
+            max-width:90% !important;
+            background:rgba(255,255,255,.06) !important;
+            color:var(--text-secondary) !important;
+            font-size:11px !important;
+            text-align:center;
+            border-radius:12px !important;
+            padding:6px 10px !important;
+            box-shadow:none !important;
+        }
+        .group-member-info-list { max-height:330px; overflow-y:auto; }
+        .group-member-info-row {
+            display:flex; align-items:center; gap:10px; padding:9px;
+            border-bottom:1px solid var(--border-color);
+        }
+        .group-member-info-row .avatar { width:38px; height:38px; flex-shrink:0; }
+        .group-member-info-meta { flex:1; min-width:0; }
+        .group-member-info-name { font-size:13px; font-weight:600; }
+        .group-member-info-role { font-size:10px; color:var(--text-secondary); margin-top:2px; }
+        .group-admin-badge {
+            display:inline-block; margin-left:5px; padding:2px 6px;
+            border-radius:8px; background:rgba(0,168,132,.14);
+            color:#25d366; font-size:9px;
+        }
 </style>
 </head>
 <body>
@@ -719,7 +745,7 @@
                     <div class="avatar">👥</div>
                     <div class="chat-info">
                         <div class="title"><span>${escapeHTML(g.name)}</span></div>
-                        <div class="subtitle">Personal group</div>
+                        <div class="subtitle">${g.removed ? 'You were removed from this group' : 'Personal group'}</div>
                     </div>`;
                 li.onclick = () => switchGroup(g.groupId, g.name);
                 list.appendChild(li);
@@ -1001,7 +1027,13 @@
         }
 
 
-        function sendMessage() {
+
+        async function isCurrentUserActiveGroupMember(groupId) {
+            const snap = await db.ref(`groups/${groupId}/members/${myUid}`).once('value');
+            return snap.exists() && snap.val() === true;
+        }
+
+        async function sendMessage() {
             const input = document.getElementById('msgInput');
             const text = input.value.trim();
             if (!text) return;
@@ -1022,6 +1054,11 @@
                 const newMsgKey = db.ref('messages/global').push().key;
                 updates[`messages/global/${newMsgKey}`] = msgData;
             } else if (currentChatType === 'group') {
+                const activeMember = await isCurrentUserActiveGroupMember(targetUid);
+                if (!activeMember) {
+                    alert('আপনাকে এই group থেকে remove করা হয়েছে। আপনি আর message পাঠাতে পারবেন না।');
+                    return;
+                }
                 const newMsgKey = db.ref(`messages/groups/${targetUid}`).push().key;
                 updates[`messages/groups/${targetUid}/${newMsgKey}`] = msgData;
             } else {
@@ -1432,16 +1469,22 @@
                 const members = snap.val() || {};
                 const isOwner = (window.currentGroupCreatedBy || '') === myUid;
 
-                let htmlOut = `<div class="manage-section-title">Members (${Object.keys(members).length})</div>`;
+                let htmlOut = `
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <div class="manage-section-title" style="margin:0;">Members (${Object.keys(members).length})</div>
+                        <button class="manage-action-btn" onclick="showGroupMemberInfo()">Group Info</button>
+                    </div>`;
 
                 Object.keys(members).forEach(uid => {
                     const p = allUserProfiles[uid] || {name:'Unknown User', avatar:'👤'};
+                    const isLeader = uid === window.currentGroupCreatedBy;
+
                     htmlOut += `
                         <div class="manage-user-row">
                             <div class="avatar manage-avatar" data-avatar="${escapeHTML(p.avatar || '👤')}"></div>
                             <div class="manage-user-info">
                                 <div class="manage-user-name">${escapeHTML(p.name || uid)}</div>
-                                <div class="manage-user-role">${uid === window.currentGroupCreatedBy ? 'Group admin' : 'Member'}</div>
+                                <div class="manage-user-role">${isLeader ? 'Group leader' : 'Member'}</div>
                             </div>
                             ${isOwner && uid !== myUid
                                 ? `<button class="manage-action-btn danger" onclick="removeGroupMember('${targetUid}','${uid}')">Remove</button>`
@@ -1459,14 +1502,14 @@
 
                 body.innerHTML = htmlOut;
 
-                body.querySelectorAll('.manage-avatar').forEach((el, i) => {
+                body.querySelectorAll('.manage-avatar').forEach(el => {
                     renderAvatarElement(el, el.dataset.avatar || '👤');
                 });
 
                 if (isOwner) {
                     renderGroupAddList();
                     const search=document.getElementById('groupAddSearch');
-                    search.addEventListener('input', renderGroupAddList);
+                    if (search) search.addEventListener('input', renderGroupAddList);
                 }
             });
         }
@@ -1509,6 +1552,20 @@
                             name: targetName,
                             createdAt: firebase.database.ServerValue.TIMESTAMP
                         });
+
+                        await addGroupSystemMessage(
+                            targetUid,
+                            `${myName} added ${u.name || 'you'} to this group`
+                        );
+
+                        if (u.uid !== myUid) {
+                            await addSystemMessageForUser(
+                                u.uid,
+                                targetUid,
+                                `${myName} added you to the group`
+                            );
+                        }
+
                         renderGroupManageBody(document.getElementById('manageBody'));
                     };
                     row.append(av,info,add);
@@ -1519,9 +1576,30 @@
 
         async function removeGroupMember(groupId, uid) {
             if (!confirm('এই member-কে group থেকে remove করবেন?')) return;
+
             try {
+                const profile = allUserProfiles[uid] || {name:'User'};
+
+                // Remove from active membership, but keep group_members record as a removed member
+                // so the group remains visible in that user's chat list.
                 await db.ref(`groups/${groupId}/members/${uid}`).remove();
-                await db.ref(`group_members/${uid}/${groupId}`).remove();
+                await db.ref(`group_members/${uid}/${groupId}`).update({
+                    name: targetName,
+                    removed: true,
+                    removedAt: firebase.database.ServerValue.TIMESTAMP
+                });
+
+                await addGroupSystemMessage(
+                    groupId,
+                    `${myName} removed ${profile.name || 'you'} from the group`
+                );
+
+                await addSystemMessageForUser(
+                    uid,
+                    groupId,
+                    `${myName} removed you from the group`
+                );
+
                 renderGroupManageBody(document.getElementById('manageBody'));
             } catch(e) {
                 console.error(e);
@@ -1560,6 +1638,78 @@
                 window.blockedUsers = snap.val() || {};
                 renderSidebar();
                 if (currentChatType === 'private') setChatManageButton();
+            });
+        }
+
+
+        async function showGroupMemberInfo() {
+            if (currentChatType !== 'group') return;
+
+            const overlay = document.getElementById('manageOverlay');
+            const title = document.getElementById('manageTitle');
+            const body = document.getElementById('manageBody');
+
+            title.textContent = `${targetName} — Group Info`;
+            body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-secondary);">Loading members...</div>';
+            overlay.style.display = 'flex';
+
+            try {
+                const groupSnap = await db.ref(`groups/${targetUid}`).once('value');
+                const group = groupSnap.val() || {};
+                const members = group.members || {};
+                const leaderUid = group.createdBy || '';
+
+                let memberRows = '';
+                for (const uid of Object.keys(members)) {
+                    const profile = allUserProfiles[uid] || {name:'Unknown User', avatar:'👤'};
+                    const isLeader = uid === leaderUid;
+
+                    memberRows += `
+                        <div class="group-member-info-row">
+                            <div class="avatar member-info-avatar" data-avatar="${escapeHTML(profile.avatar || '👤')}"></div>
+                            <div class="group-member-info-meta">
+                                <div class="group-member-info-name">
+                                    ${escapeHTML(profile.name || uid)}
+                                    ${isLeader ? '<span class="group-admin-badge">GROUP LEADER</span>' : ''}
+                                </div>
+                                <div class="group-member-info-role">${isLeader ? 'Group leader' : 'Member'}</div>
+                            </div>
+                        </div>`;
+                }
+
+                body.innerHTML = `
+                    <div style="color:var(--text-secondary);font-size:12px;margin-bottom:8px;">
+                        ${Object.keys(members).length} members
+                    </div>
+                    <div class="group-member-info-list">${memberRows}</div>
+                `;
+
+                body.querySelectorAll('.member-info-avatar').forEach(el => {
+                    renderAvatarElement(el, el.dataset.avatar || '👤');
+                });
+            } catch (e) {
+                console.error(e);
+                body.innerHTML = '<div style="padding:15px;color:#ff6b6b;">Group info load করা যায়নি।</div>';
+            }
+        }
+
+        async function addGroupSystemMessage(groupId, text) {
+            const ref = db.ref(`messages/groups/${groupId}`).push();
+            await ref.set({
+                type: 'system',
+                text,
+                senderUid: myUid,
+                senderName: myName,
+                timestamp: firebase.database.ServerValue.TIMESTAMP
+            });
+        }
+
+        async function addSystemMessageForUser(uid, groupId, text) {
+            const ref = db.ref(`group_notifications/${uid}/${groupId}`).push();
+            await ref.set({
+                text,
+                timestamp: firebase.database.ServerValue.TIMESTAMP,
+                groupId
             });
         }
 
@@ -1609,6 +1759,13 @@
 
             if (msg.deleted) {
                 div.innerHTML = `<div class="unsent-message">This message was unsent</div>`;
+                box.appendChild(div);
+                return;
+            }
+
+            if (msg.type === 'system') {
+                div.className = 'message group-system-message';
+                div.innerHTML = escapeHTML(msg.text || '');
                 box.appendChild(div);
                 return;
             }
