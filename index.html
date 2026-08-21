@@ -672,6 +672,10 @@
 
 
 
+            db.ref(`recent_chats/${myUid}`).on('child_added', () => {
+                renderSidebar();
+            });
+
             // recent_chats_message_counter: count every unread incoming message in real time.
             db.ref(`recent_chats/${myUid}`).on('child_changed', snapshot => {
                 const uid = snapshot.key;
@@ -765,7 +769,8 @@
                     isOnline: !!onlineUsers[uid],
                     timestamp: recentChats[uid].timestamp || 0,
                     text: recentChats[uid].text,
-                    unread: recentChats[uid].unread
+                    unread: !!recentChats[uid].unread,
+                    unreadCount: Number(recentChats[uid].unreadCount || 0)
                 });
             });
 
@@ -790,7 +795,10 @@
 
             sidebarItems.forEach(u => {
                 const timeStr = u.timestamp ? new Date(u.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
-                const unreadBadge = u.unread ? `<div class="unread-badge">New</div>` : '';
+                const unreadCount = Number(recentChats[u.uid]?.unreadCount || 0);
+                const unreadBadge = unreadCount > 0
+                    ? `<div class="unread-badge">+${unreadCount}</div>`
+                    : '';
                 const subtitleClass = u.unread ? 'subtitle unread' : 'subtitle';
                 const statusDot = u.isOnline ? `<div class="status-dot" title="Active now" aria-label="Active now"></div>` : '';
 
@@ -1082,7 +1090,6 @@
                     timestamp: ts,
                     text: text,
                     unread: true,
-                    unreadCount: firebase.database.ServerValue.increment(1),
                     partnerName: myName,
                     messageId: newMsgKey,
                     lastSenderUid: myUid
@@ -1090,7 +1097,15 @@
             }
 
             db.ref().update(updates)
-                .then(() => {
+                .then(async () => {
+                    // Increment the recipient's unread counter atomically.
+                    // This is more reliable than ServerValue.increment on older Firebase SDKs.
+                    if (currentChatType === 'private') {
+                        const unreadRef = db.ref(`recent_chats/${targetUid}/${myUid}/unreadCount`);
+                        await unreadRef.transaction(current => (Number(current) || 0) + 1);
+                        await db.ref(`recent_chats/${targetUid}/${myUid}/unread`).set(true);
+                    }
+
                     input.value = '';
                     scrollMessagesToBottom(true);
                 })
