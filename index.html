@@ -7,6 +7,7 @@
     <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
     <style>
         :root {
             --bg-main: #0b141a;
@@ -38,7 +39,7 @@
         .sidebar { width: 340px; border-right: 1px solid var(--border-color); display: flex; flex-direction: column; background: var(--bg-side); }
         .user-profile-bar { padding: 15px; background: var(--panel); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-color); }
         .user-profile-left { display: flex; align-items: center; gap: 10px; overflow: hidden; cursor: pointer; }
-        .user-profile-left:hover opacity { opacity: 0.8; }
+        .user-profile-left:hover { opacity: 0.8; }
         .user-profile-bar .name { font-weight: bold; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .settings-btn { background: transparent; border: none; color: var(--text-secondary); font-size: 18px; cursor: pointer; padding: 5px; }
         .settings-btn:hover { color: var(--text-primary); }
@@ -94,6 +95,8 @@
             <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 15px;">চ্যাট শুরু করতে আপনার নাম এবং প্রোফাইল পিকচারের লিংক (বা ইমোজি) দিন</p>
             <input type="text" id="regNameInput" placeholder="আপনার নাম..." autocomplete="off">
             <input type="text" id="regAvatarInput" placeholder="প্রোফাইল ছবির লিংক (ঐচ্ছিক) বা ইমোজি 👤" autocomplete="off">
+            <div style="margin:8px 0;color:var(--text-secondary);font-size:12px;">অথবা ছবি আপলোড করুন</div>
+            <input type="file" id="regAvatarFile" accept="image/*" style="width:100%;color:var(--text-secondary);font-size:13px;margin:4px 0 8px;">
             <button onclick="registerUser()">অ্যাকাউন্ট তৈরি করুন</button>
         </div>
     </div>
@@ -104,7 +107,9 @@
             <h2>প্রোফাইল সেটিংস ⚙️</h2>
             <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">আপনার নাম বা ছবি পরিবর্তন করুন</p>
             <input type="text" id="editNameInput" placeholder="নতুন নাম..." autocomplete="off">
-            <input type="text" id="editAvatarInput" placeholder="নতুন ছবির লিংক বা ইমোজি..." autocomplete="off">
+            <input type="text" id="editAvatarInput" placeholder="ছবির লিংক বা ইমোজি..." autocomplete="off">
+            <div style="margin:8px 0;color:var(--text-secondary);font-size:12px;">অথবা ছবি আপলোড করুন</div>
+            <input type="file" id="editAvatarFile" accept="image/*" style="width:100%;color:var(--text-secondary);font-size:13px;margin:4px 0 8px;">
             <button onclick="saveProfileChanges()">সংরক্ষণ করুন</button>
             <button onclick="closeSettings()" style="background: #334155; margin-top: 5px;">বাতিল</button>
         </div>
@@ -161,6 +166,7 @@
 
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
+        const storage = firebase.storage();
 
         // পার্মানেন্ট ইউনিক আইডি যা ব্রাউজারে স্থায়ীভাবে সেভ থাকবে
         let myUid = localStorage.getItem('pro_chat_permanent_uid');
@@ -189,21 +195,27 @@
             }
         };
 
-        function registerUser() {
+        async function registerUser() {
             const name = document.getElementById('regNameInput').value.trim();
-            const avatar = document.getElementById('regAvatarInput').value.trim() || '👤';
+            const avatarInput = document.getElementById('regAvatarInput').value.trim();
+            const file = document.getElementById('regAvatarFile').files[0];
             if (!name) {
                 alert("দয়া করে আপনার নাম লিখুন!");
                 return;
             }
 
-            myName = name;
-            myAvatar = avatar;
-            localStorage.setItem('pro_chat_name', myName);
-            localStorage.setItem('pro_chat_avatar', myAvatar);
+            try {
+                myName = name;
+                myAvatar = file ? await uploadAvatar(file) : (avatarInput || '👤');
+                localStorage.setItem('pro_chat_name', myName);
+                localStorage.setItem('pro_chat_avatar', myAvatar);
 
-            document.getElementById('loginOverlay').style.display = 'none';
-            initApp();
+                document.getElementById('loginOverlay').style.display = 'none';
+                initApp();
+            } catch (error) {
+                console.error(error);
+                alert("প্রোফাইল ছবি আপলোড করা যায়নি। আবার চেষ্টা করুন।");
+            }
         }
 
         function initApp() {
@@ -224,9 +236,13 @@
             document.getElementById('myProfileName').innerText = myName;
             const avatarDiv = document.getElementById('mySidebarAvatar');
             if (myAvatar.startsWith('http')) {
-                avatarDiv.innerHTML = `<img src="${myAvatar}" alt="Avatar">`;
+                avatarDiv.innerHTML = '';
+                const img = document.createElement('img');
+                img.src = myAvatar;
+                img.alt = 'Avatar';
+                avatarDiv.appendChild(img);
             } else {
-                avatarDiv.innerHTML = myAvatar;
+                avatarDiv.textContent = myAvatar;
             }
         }
 
@@ -241,27 +257,43 @@
             document.getElementById('settingsOverlay').style.display = 'none';
         }
 
-        function saveProfileChanges() {
+        async function saveProfileChanges() {
             const newName = document.getElementById('editNameInput').value.trim();
-            const newAvatar = document.getElementById('editAvatarInput').value.trim() || '👤';
+            const avatarInput = document.getElementById('editAvatarInput').value.trim();
+            const file = document.getElementById('editAvatarFile').files[0];
             if (!newName) {
                 alert("নাম খালি রাখা যাবে না!");
                 return;
             }
 
-            myName = newName;
-            myAvatar = newAvatar;
-            localStorage.setItem('pro_chat_name', myName);
-            localStorage.setItem('pro_chat_avatar', myAvatar);
+            try {
+                const newAvatar = file ? await uploadAvatar(file) : (avatarInput || '👤');
+                myName = newName;
+                myAvatar = newAvatar;
+                localStorage.setItem('pro_chat_name', myName);
+                localStorage.setItem('pro_chat_avatar', myAvatar);
 
-            // ডাটাবেজে প্রোফাইল আপডেট করা
-            db.ref(`users/${myUid}`).update({
-                name: myName,
-                avatar: myAvatar
-            });
+                await db.ref(`users/${myUid}`).update({
+                    name: myName,
+                    avatar: myAvatar
+                });
 
-            updateMyUI();
-            closeSettings();
+                updateMyUI();
+                closeSettings();
+                document.getElementById('editAvatarFile').value = '';
+            } catch (error) {
+                console.error(error);
+                alert("প্রোফাইল আপডেট করা যায়নি। আবার চেষ্টা করুন।");
+            }
+        }
+
+        async function uploadAvatar(file) {
+            if (!file.type.startsWith('image/')) throw new Error('Invalid image');
+            if (file.size > 2 * 1024 * 1024) throw new Error('Image too large');
+            const ext = file.name.split('.').pop().toLowerCase() || 'jpg';
+            const ref = storage.ref(`avatars/${myUid}.${ext}`);
+            await ref.put(file);
+            return await ref.getDownloadURL();
         }
 
         // লাইভ প্রেজেন্স ও প্রোফাইল ক্যাশ করা
@@ -296,6 +328,9 @@
             // ৩. নিজের রিসেন্ট চ্যাট ট্র্যাক করা
             db.ref(`recent_chats/${myUid}`).on('value', (snapshot) => {
                 recentChats = snapshot.val() || {};
+                if (currentChatType === 'private' && targetUid && recentChats[targetUid]?.unread) {
+                    db.ref(`recent_chats/${myUid}/${targetUid}/unread`).set(false);
+                }
                 renderSidebar();
             });
         }
@@ -354,27 +389,52 @@
                 const subtitleClass = u.unread ? 'subtitle unread' : 'subtitle';
                 const statusDot = u.isOnline ? `<div class="status-dot"></div>` : '';
 
-                let avatarHtml = u.avatar.startsWith('http') ? `<img src="${u.avatar}">` : u.avatar;
-
                 const li = document.createElement('li');
                 li.className = `chat-item ${targetUid === u.uid ? 'active' : ''}`;
                 li.onclick = () => switchChat(u.uid, u.name);
-                li.innerHTML = `
-                    <div class="avatar">
-                        ${avatarHtml}
-                        ${statusDot}
-                    </div>
-                    <div class="chat-info">
-                        <div class="title">
-                            <span>${u.name}</span>
-                            <span style="font-size:10px; color:var(--text-secondary); font-weight:normal;">${timeStr}</span>
-                        </div>
-                        <div class="${subtitleClass}">
-                            <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width: 80%;">${escapeHTML(u.text)}</span>
-                            ${unreadBadge}
-                        </div>
-                    </div>
-                `;
+
+                const avatar = document.createElement('div');
+                avatar.className = 'avatar';
+                if (u.avatar && u.avatar.startsWith('http')) {
+                    const img = document.createElement('img');
+                    img.src = u.avatar;
+                    img.alt = 'Avatar';
+                    avatar.appendChild(img);
+                } else {
+                    avatar.textContent = u.avatar || '👤';
+                }
+                if (u.isOnline) {
+                    const dot = document.createElement('div');
+                    dot.className = 'status-dot';
+                    avatar.appendChild(dot);
+                }
+
+                const info = document.createElement('div');
+                info.className = 'chat-info';
+                const titleDiv = document.createElement('div');
+                titleDiv.className = 'title';
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = u.name || 'Unknown';
+                const timeSpan = document.createElement('span');
+                timeSpan.style.cssText = 'font-size:10px;color:var(--text-secondary);font-weight:normal;';
+                timeSpan.textContent = timeStr;
+                titleDiv.append(nameSpan, timeSpan);
+
+                const subDiv = document.createElement('div');
+                subDiv.className = subtitleClass;
+                const textSpan = document.createElement('span');
+                textSpan.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80%;';
+                textSpan.textContent = u.text || '';
+                subDiv.appendChild(textSpan);
+                if (u.unread) {
+                    const badge = document.createElement('div');
+                    badge.className = 'unread-badge';
+                    badge.textContent = 'New';
+                    subDiv.appendChild(badge);
+                }
+
+                info.append(titleDiv, subDiv);
+                li.append(avatar, info);
                 list.appendChild(li);
             });
         }
@@ -444,8 +504,14 @@
                 };
             }
 
-            db.ref().update(updates);
-            input.value = '';
+            db.ref().update(updates)
+                .then(() => {
+                    input.value = '';
+                })
+                .catch(error => {
+                    console.error(error);
+                    alert("Message পাঠানো যায়নি। আবার চেষ্টা করুন।");
+                });
         }
 
         function handleEnter(e) {
@@ -462,7 +528,7 @@
             const timeString = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
             div.innerHTML = `
-                ${!isMe ? `<div class="msg-sender">${msg.senderName}</div>` : ''}
+                ${!isMe ? `<div class="msg-sender">${escapeHTML(msg.senderName || 'Unknown')}</div>` : ''}
                 <div>${escapeHTML(msg.text)}</div>
                 <div class="msg-time">${timeString}</div>
             `;
