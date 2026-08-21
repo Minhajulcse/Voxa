@@ -42,11 +42,15 @@
         .chat-list { flex: 1; overflow-y: auto; list-style: none; }
         .chat-item { padding: 14px 15px; display: flex; align-items: center; gap: 12px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.03); transition: 0.2s; }
         .chat-item:hover, .chat-item.active { background: var(--panel); }
-        .avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--panel); display: flex; justify-content: center; align-items: center; font-weight: bold; position: relative; border: 1px solid var(--border-color); }
+        .avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--panel); display: flex; justify-content: center; align-items: center; font-weight: bold; position: relative; border: 1px solid var(--border-color); flex-shrink: 0;}
         .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #25d366; position: absolute; bottom: 0; right: 0; border: 2px solid var(--bg-side); }
         .chat-info { flex: 1; overflow: hidden; }
-        .chat-info .title { font-weight: 500; font-size: 15px; }
-        .chat-info .subtitle { font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .chat-info .title { font-weight: 500; font-size: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;}
+        .chat-info .subtitle { font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; justify-content: space-between; align-items: center;}
+        
+        /* Unread Badge CSS */
+        .subtitle.unread { font-weight: bold; color: var(--text-primary); }
+        .unread-badge { background: #25d366; color: #111b21; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 10px; margin-left: 5px; line-height: 1;}
 
         /* Main Chat Window */
         .chat-window { flex: 1; display: flex; flex-direction: column; background: var(--bg-main); }
@@ -99,14 +103,7 @@
 
             <div class="online-list-header">কথোপকথন ও অনলাইন ইউজার</div>
             <ul class="chat-list" id="chatList">
-                <!-- Global Chat Tab -->
-                <li class="chat-item active" onclick="switchChat('global', '🌐 গ্লোবাল চ্যাট রুম')">
-                    <div class="avatar">🌐</div>
-                    <div class="chat-info">
-                        <div class="title">গ্লোবাল চ্যাট রুম</div>
-                        <div class="subtitle">সবার জন্য উন্মুক্ত চ্যাট</div>
-                    </div>
-                </li>
+                <!-- Sidebar items will load dynamically here -->
             </ul>
         </div>
 
@@ -131,7 +128,7 @@
     </div>
 
     <script>
-        // আপনার দেওয়া Firebase কনফিগারেশন + Database URL
+        // আপনার Firebase কনফিগারেশন + Database URL
         const firebaseConfig = {
             apiKey: "AIzaSyCwAWShdsGnzlL25_0PwhBHbNNW9BvN6j0",
             authDomain: "roomchat-13d45.firebaseapp.com",
@@ -152,7 +149,11 @@
 
         let currentChatType = 'global'; 
         let targetUid = null;
+        let targetName = 'গ্লোবাল চ্যাট রুম';
         let activeListenerRef = null;
+
+        let onlineUsers = {};
+        let recentChats = {};
 
         window.onload = () => {
             if (myName) {
@@ -169,7 +170,7 @@
             document.getElementById('loginOverlay').style.display = 'none';
 
             setupPresence();
-            listenToOnlineUsers();
+            listenToSidebarData();
             switchChat('global', '🌐 গ্লোবাল চ্যাট রুম');
         }
 
@@ -190,34 +191,94 @@
             });
         }
 
-        // অনলাইন ইউজারদের তালিকা
-        function listenToOnlineUsers() {
+        // সাইডবারের ডাটা (Online users & Recent messages) শোনা
+        function listenToSidebarData() {
+            // ১. অনলাইন ইউজার ট্র্যাক করা
             db.ref('presence').on('value', (snapshot) => {
-                const users = snapshot.val() || {};
-                const list = document.getElementById('chatList');
-                
-                // Keep Global tab, remove old user items
-                list.querySelectorAll('.user-chat-item').forEach(e => e.remove());
+                onlineUsers = snapshot.val() || {};
+                renderSidebar();
+            });
 
-                Object.keys(users).forEach(uid => {
-                    if (uid === myUid) return; // নিজেকে লিস্টে দেখাবে না
-                    const u = users[uid];
+            // ২. নিজের রিসেন্ট মেসেজ ট্র্যাক করা
+            db.ref(`recent_chats/${myUid}`).on('value', (snapshot) => {
+                recentChats = snapshot.val() || {};
+                renderSidebar();
+            });
+        }
 
-                    const li = document.createElement('li');
-                    li.className = `chat-item user-chat-item ${targetUid === uid ? 'active' : ''}`;
-                    li.onclick = () => switchChat(uid, u.name);
-                    li.innerHTML = `
-                        <div class="avatar">
-                            ${u.name.charAt(0).toUpperCase()}
-                            <div class="status-dot"></div>
-                        </div>
-                        <div class="chat-info">
-                            <div class="title">${u.name}</div>
-                            <div class="subtitle">অনলাইনে আছেন (DM)</div>
-                        </div>
-                    `;
-                    list.appendChild(li);
+        // সাইডবার সাজানো এবং আপডেট করা
+        function renderSidebar() {
+            const list = document.getElementById('chatList');
+            
+            // সব ক্লিয়ার করে গ্লোবাল চ্যাট আগে অ্যাড করা
+            list.innerHTML = `
+                <li class="chat-item ${currentChatType === 'global' ? 'active' : ''}" onclick="switchChat('global', '🌐 গ্লোবাল চ্যাট রুম')">
+                    <div class="avatar">🌐</div>
+                    <div class="chat-info">
+                        <div class="title">গ্লোবাল চ্যাট রুম</div>
+                        <div class="subtitle">সবার জন্য উন্মুক্ত চ্যাট</div>
+                    </div>
+                </li>
+            `;
+
+            let sidebarItems = [];
+
+            // যারা মেসেজ দিয়েছে তাদের লিস্টে অ্যাড করা
+            Object.keys(recentChats).forEach(uid => {
+                sidebarItems.push({
+                    uid: uid,
+                    name: recentChats[uid].partnerName || 'Unknown',
+                    isOnline: !!onlineUsers[uid],
+                    timestamp: recentChats[uid].timestamp || 0,
+                    text: recentChats[uid].text,
+                    unread: recentChats[uid].unread
                 });
+            });
+
+            // যারা অনলাইন আছে কিন্তু মেসেজ দেয়নি, তাদের অ্যাড করা
+            Object.keys(onlineUsers).forEach(uid => {
+                if (uid !== myUid && !recentChats[uid]) {
+                    sidebarItems.push({
+                        uid: uid,
+                        name: onlineUsers[uid].name,
+                        isOnline: true,
+                        timestamp: 0, 
+                        text: 'নতুন ইউজার',
+                        unread: false
+                    });
+                }
+            });
+
+            // টাইমস্ট্যাম্প অনুযায়ী সাজানো (যে মেসেজ দিয়েছে সে উপরে আসবে)
+            sidebarItems.sort((a, b) => b.timestamp - a.timestamp);
+
+            // লিস্ট প্রিন্ট করা
+            sidebarItems.forEach(u => {
+                const timeStr = u.timestamp ? new Date(u.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+                const unreadBadge = u.unread ? `<div class="unread-badge">New</div>` : '';
+                const subtitleClass = u.unread ? 'subtitle unread' : 'subtitle';
+                const statusDot = u.isOnline ? `<div class="status-dot"></div>` : '';
+
+                const li = document.createElement('li');
+                li.className = `chat-item ${targetUid === u.uid ? 'active' : ''}`;
+                li.onclick = () => switchChat(u.uid, u.name);
+                li.innerHTML = `
+                    <div class="avatar">
+                        ${u.name.charAt(0).toUpperCase()}
+                        ${statusDot}
+                    </div>
+                    <div class="chat-info">
+                        <div class="title">
+                            <span>${u.name}</span>
+                            <span style="font-size:10px; color:var(--text-secondary); font-weight:normal;">${timeStr}</span>
+                        </div>
+                        <div class="${subtitleClass}">
+                            <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width: 80%;">${escapeHTML(u.text)}</span>
+                            ${unreadBadge}
+                        </div>
+                    </div>
+                `;
+                list.appendChild(li);
             });
         }
 
@@ -225,23 +286,23 @@
         function switchChat(type, title) {
             currentChatType = (type === 'global') ? 'global' : 'private';
             targetUid = (type === 'global') ? null : type;
+            targetName = title;
 
             document.getElementById('currentChatTitle').innerText = title;
             document.getElementById('currentChatStatus').innerText = (type === 'global') ? 'Public Room' : 'Direct Message (🔒 Private)';
 
-            document.querySelectorAll('.chat-item').forEach(item => item.classList.remove('active'));
+            // মেসেজ রিড (Read) করে দেওয়া
+            if (currentChatType === 'private' && recentChats[targetUid] && recentChats[targetUid].unread) {
+                db.ref(`recent_chats/${myUid}/${targetUid}/unread`).set(false);
+            }
+
+            renderSidebar(); // Active ক্লাস আপডেট করার জন্য
 
             if (activeListenerRef) activeListenerRef.off();
             const messagesBox = document.getElementById('messagesBox');
             messagesBox.innerHTML = '';
 
-            let chatPath = '';
-            if (currentChatType === 'global') {
-                chatPath = 'messages/global';
-            } else {
-                const dmId = [myUid, targetUid].sort().join('_');
-                chatPath = `messages/private/${dmId}`;
-            }
+            let chatPath = (currentChatType === 'global') ? 'messages/global' : `messages/private/${[myUid, targetUid].sort().join('_')}`;
 
             activeListenerRef = db.ref(chatPath).limitToLast(60);
             activeListenerRef.on('child_added', (snapshot) => {
@@ -256,22 +317,40 @@
             const text = input.value.trim();
             if (!text) return;
 
+            const ts = firebase.database.ServerValue.TIMESTAMP;
             const msgData = {
                 senderUid: myUid,
                 senderName: myName,
                 text: text,
-                timestamp: firebase.database.ServerValue.TIMESTAMP
+                timestamp: ts
             };
 
-            let chatPath = '';
+            const updates = {};
+
             if (currentChatType === 'global') {
-                chatPath = 'messages/global';
+                const newMsgKey = db.ref('messages/global').push().key;
+                updates[`messages/global/${newMsgKey}`] = msgData;
             } else {
                 const dmId = [myUid, targetUid].sort().join('_');
-                chatPath = `messages/private/${dmId}`;
+                const newMsgKey = db.ref(`messages/private/${dmId}`).push().key;
+                updates[`messages/private/${dmId}/${newMsgKey}`] = msgData;
+
+                // Recent Chats আপডেট করা (যাতে উপরে আসে এবং Unread দেখায়)
+                updates[`recent_chats/${myUid}/${targetUid}`] = {
+                    timestamp: ts,
+                    text: text,
+                    unread: false,
+                    partnerName: targetName
+                };
+                updates[`recent_chats/${targetUid}/${myUid}`] = {
+                    timestamp: ts,
+                    text: text,
+                    unread: true, // যার কাছে মেসেজ যাচ্ছে তার unread ট্রু হবে
+                    partnerName: myName
+                };
             }
 
-            db.ref(chatPath).push(msgData);
+            db.ref().update(updates);
             input.value = '';
         }
 
