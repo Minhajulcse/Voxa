@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RoomChat - Live Messaging</title>
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <style>
+        :root {
+            --bg-main: #0b141a;
+            --bg-side: #111b21;
+            --panel: #202c33;
+            --text-primary: #e9edef;
+            --text-secondary: #8696a0;
+            --accent: #00a884;
+            --bubble-me: #005c4b;
+            --bubble-other: #202c33;
+            --border-color: #222d34;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; }
+        body { background: var(--bg-main); color: var(--text-primary); height: 100vh; display: flex; justify-content: center; align-items: center; }
+
+        /* Login Screen */
+        .login-overlay { position: fixed; inset: 0; background: var(--bg-main); display: flex; justify-content: center; align-items: center; z-index: 100; }
+        .login-card { background: var(--bg-side); padding: 30px; border-radius: 12px; width: 90%; max-width: 380px; text-align: center; border: 1px solid var(--border-color); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .login-card h2 { color: var(--accent); margin-bottom: 10px; }
+        .login-card input { width: 100%; padding: 12px; background: var(--panel); border: 1px solid var(--border-color); border-radius: 8px; color: #fff; font-size: 16px; margin: 15px 0; outline: none; }
+        .login-card button { width: 100%; padding: 12px; background: var(--accent); color: #fff; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .login-card button:hover { opacity: 0.9; }
+
+        /* App Container */
+        .app-container { width: 100vw; height: 100vh; max-width: 1400px; display: flex; background: var(--bg-side); overflow: hidden; }
+
+        /* Sidebar */
+        .sidebar { width: 340px; border-right: 1px solid var(--border-color); display: flex; flex-direction: column; background: var(--bg-side); }
+        .user-profile-bar { padding: 15px; background: var(--panel); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-color); }
+        .user-profile-bar .name { font-weight: bold; color: var(--accent); }
+        .online-list-header { padding: 12px 15px; font-size: 13px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+        .chat-list { flex: 1; overflow-y: auto; list-style: none; }
+        .chat-item { padding: 14px 15px; display: flex; align-items: center; gap: 12px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.03); transition: 0.2s; }
+        .chat-item:hover, .chat-item.active { background: var(--panel); }
+        .avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--panel); display: flex; justify-content: center; align-items: center; font-weight: bold; position: relative; border: 1px solid var(--border-color); }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #25d366; position: absolute; bottom: 0; right: 0; border: 2px solid var(--bg-side); }
+        .chat-info { flex: 1; overflow: hidden; }
+        .chat-info .title { font-weight: 500; font-size: 15px; }
+        .chat-info .subtitle { font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* Main Chat Window */
+        .chat-window { flex: 1; display: flex; flex-direction: column; background: var(--bg-main); }
+        .chat-header { padding: 15px 20px; background: var(--panel); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-color); }
+        .chat-header-info h3 { font-size: 16px; margin-bottom: 2px; }
+        .chat-header-info span { font-size: 12px; color: var(--text-secondary); }
+
+        .messages-box { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .message { max-width: 65%; padding: 8px 12px; border-radius: 8px; font-size: 14.5px; line-height: 1.4; word-wrap: break-word; position: relative; display: inline-block; }
+        .message.sent { align-self: flex-end; background: var(--bubble-me); border-top-right-radius: 0; }
+        .message.received { align-self: flex-start; background: var(--bubble-other); border-top-left-radius: 0; }
+        .msg-sender { font-size: 12px; font-weight: bold; color: var(--accent); margin-bottom: 3px; }
+        .msg-time { font-size: 10px; color: var(--text-secondary); float: right; margin-left: 10px; margin-top: 5px; }
+
+        /* Message Input */
+        .input-bar { padding: 12px 20px; background: var(--panel); display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--border-color); }
+        .input-bar input { flex: 1; padding: 12px 15px; background: var(--bg-side); border: 1px solid var(--border-color); border-radius: 25px; color: #fff; font-size: 15px; outline: none; }
+        .input-bar button { padding: 10px 20px; background: var(--accent); color: #fff; border: none; border-radius: 20px; font-size: 14px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .input-bar button:hover { opacity: 0.9; }
+
+        @media (max-width: 768px) {
+            .app-container { flex-direction: column; }
+            .sidebar { width: 100%; height: 35%; border-right: none; border-bottom: 1px solid var(--border-color); }
+            .chat-window { height: 65%; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Login Modal -->
+    <div id="loginOverlay" class="login-overlay">
+        <div class="login-card">
+            <h2>RoomChat Pro 💬</h2>
+            <p style="color: var(--text-secondary); font-size: 14px;">চ্যাট শুরু করতে আপনার নাম লিখুন</p>
+            <input type="text" id="usernameInput" placeholder="আপনার নাম..." autocomplete="off">
+            <button onclick="login()">প্রবেশ করুন</button>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="app-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="user-profile-bar">
+                <div>
+                    <span style="font-size: 13px; color: var(--text-secondary);">Logged in as:</span>
+                    <div class="name" id="myProfileName">Anonymous</div>
+                </div>
+            </div>
+
+            <div class="online-list-header">কথোপকথন ও অনলাইন ইউজার</div>
+            <ul class="chat-list" id="chatList">
+                <!-- Global Chat Tab -->
+                <li class="chat-item active" onclick="switchChat('global', '🌐 গ্লোবাল চ্যাট রুম')">
+                    <div class="avatar">🌐</div>
+                    <div class="chat-info">
+                        <div class="title">গ্লোবাল চ্যাট রুম</div>
+                        <div class="subtitle">সবার জন্য উন্মুক্ত চ্যাট</div>
+                    </div>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Main Chat Area -->
+        <div class="chat-window">
+            <div class="chat-header">
+                <div class="chat-header-info">
+                    <h3 id="currentChatTitle">🌐 গ্লোবাল চ্যাট রুম</h3>
+                    <span id="currentChatStatus">Global Channel</span>
+                </div>
+            </div>
+
+            <div class="messages-box" id="messagesBox">
+                <!-- Messages will appear here -->
+            </div>
+
+            <div class="input-bar">
+                <input type="text" id="msgInput" placeholder="মেসেজ লিখুন..." autocomplete="off" onkeypress="handleEnter(event)">
+                <button onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // আপনার দেওয়া Firebase কনফিগারেশন + Database URL
+        const firebaseConfig = {
+            apiKey: "AIzaSyCwAWShdsGnzlL25_0PwhBHbNNW9BvN6j0",
+            authDomain: "roomchat-13d45.firebaseapp.com",
+            databaseURL: "https://roomchat-13d45-default-rtdb.firebaseio.com",
+            projectId: "roomchat-13d45",
+            storageBucket: "roomchat-13d45.firebasestorage.app",
+            messagingSenderId: "859702863241",
+            appId: "1:859702863241:web:b3c1b66fd252781f852d58"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        let myUid = localStorage.getItem('pro_chat_uid') || 'u_' + Math.random().toString(36).substring(2, 9);
+        localStorage.setItem('pro_chat_uid', myUid);
+        let myName = localStorage.getItem('pro_chat_name');
+
+        let currentChatType = 'global'; 
+        let targetUid = null;
+        let activeListenerRef = null;
+
+        window.onload = () => {
+            if (myName) {
+                document.getElementById('usernameInput').value = myName;
+            }
+        };
+
+        function login() {
+            const input = document.getElementById('usernameInput').value.trim();
+            if (!input) return;
+            myName = input;
+            localStorage.setItem('pro_chat_name', myName);
+            document.getElementById('myProfileName').innerText = myName;
+            document.getElementById('loginOverlay').style.display = 'none';
+
+            setupPresence();
+            listenToOnlineUsers();
+            switchChat('global', '🌐 গ্লোবাল চ্যাট রুম');
+        }
+
+        // লাইভ প্রেজেন্স লজিক
+        function setupPresence() {
+            const myPresenceRef = db.ref(`presence/${myUid}`);
+            const connectedRef = db.ref('.info/connected');
+
+            connectedRef.on('value', (snap) => {
+                if (snap.val() === true) {
+                    myPresenceRef.onDisconnect().remove();
+                    myPresenceRef.set({
+                        name: myName,
+                        uid: myUid,
+                        lastSeen: firebase.database.ServerValue.TIMESTAMP
+                    });
+                }
+            });
+        }
+
+        // অনলাইন ইউজারদের তালিকা
+        function listenToOnlineUsers() {
+            db.ref('presence').on('value', (snapshot) => {
+                const users = snapshot.val() || {};
+                const list = document.getElementById('chatList');
+                
+                // Keep Global tab, remove old user items
+                list.querySelectorAll('.user-chat-item').forEach(e => e.remove());
+
+                Object.keys(users).forEach(uid => {
+                    if (uid === myUid) return; // নিজেকে লিস্টে দেখাবে না
+                    const u = users[uid];
+
+                    const li = document.createElement('li');
+                    li.className = `chat-item user-chat-item ${targetUid === uid ? 'active' : ''}`;
+                    li.onclick = () => switchChat(uid, u.name);
+                    li.innerHTML = `
+                        <div class="avatar">
+                            ${u.name.charAt(0).toUpperCase()}
+                            <div class="status-dot"></div>
+                        </div>
+                        <div class="chat-info">
+                            <div class="title">${u.name}</div>
+                            <div class="subtitle">অনলাইনে আছেন (DM)</div>
+                        </div>
+                    `;
+                    list.appendChild(li);
+                });
+            });
+        }
+
+        // চ্যাট সুইচিং 
+        function switchChat(type, title) {
+            currentChatType = (type === 'global') ? 'global' : 'private';
+            targetUid = (type === 'global') ? null : type;
+
+            document.getElementById('currentChatTitle').innerText = title;
+            document.getElementById('currentChatStatus').innerText = (type === 'global') ? 'Public Room' : 'Direct Message (🔒 Private)';
+
+            document.querySelectorAll('.chat-item').forEach(item => item.classList.remove('active'));
+
+            if (activeListenerRef) activeListenerRef.off();
+            const messagesBox = document.getElementById('messagesBox');
+            messagesBox.innerHTML = '';
+
+            let chatPath = '';
+            if (currentChatType === 'global') {
+                chatPath = 'messages/global';
+            } else {
+                const dmId = [myUid, targetUid].sort().join('_');
+                chatPath = `messages/private/${dmId}`;
+            }
+
+            activeListenerRef = db.ref(chatPath).limitToLast(60);
+            activeListenerRef.on('child_added', (snapshot) => {
+                const msg = snapshot.val();
+                renderMessage(msg);
+            });
+        }
+
+        // মেসেজ পাঠানো 
+        function sendMessage() {
+            const input = document.getElementById('msgInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            const msgData = {
+                senderUid: myUid,
+                senderName: myName,
+                text: text,
+                timestamp: firebase.database.ServerValue.TIMESTAMP
+            };
+
+            let chatPath = '';
+            if (currentChatType === 'global') {
+                chatPath = 'messages/global';
+            } else {
+                const dmId = [myUid, targetUid].sort().join('_');
+                chatPath = `messages/private/${dmId}`;
+            }
+
+            db.ref(chatPath).push(msgData);
+            input.value = '';
+        }
+
+        function handleEnter(e) {
+            if (e.key === 'Enter') sendMessage();
+        }
+
+        function renderMessage(msg) {
+            const box = document.getElementById('messagesBox');
+            const isMe = msg.senderUid === myUid;
+            
+            const div = document.createElement('div');
+            div.className = `message ${isMe ? 'sent' : 'received'}`;
+            
+            const timeString = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+            div.innerHTML = `
+                ${!isMe ? `<div class="msg-sender">${msg.senderName}</div>` : ''}
+                <div>${escapeHTML(msg.text)}</div>
+                <div class="msg-time">${timeString}</div>
+            `;
+
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function escapeHTML(str) {
+            return str.replace(/[&<>'"]/g, tag => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+            }[tag] || tag));
+        }
+    </script>
+</body>
+</html>
