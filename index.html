@@ -255,7 +255,33 @@
         }
         .group-selected-count { color:var(--text-secondary); font-size:11px; text-align:left; margin:6px 0; }
 
-    </style>
+    
+        .chat-manage-btn {
+            border:0;
+            background:transparent;
+            color:var(--text-secondary);
+            font-size:22px;
+            cursor:pointer;
+            padding:4px 8px;
+            margin-left:auto;
+        }
+        .manage-modal-card { max-width:440px; }
+        .manage-section-title { font-size:13px; font-weight:700; margin:14px 0 7px; }
+        .manage-user-row {
+            display:flex; align-items:center; gap:9px; padding:8px;
+            border:1px solid var(--border-color); border-radius:9px; margin-bottom:6px;
+        }
+        .manage-user-row .avatar { width:36px; height:36px; flex-shrink:0; }
+        .manage-user-info { flex:1; min-width:0; }
+        .manage-user-name { font-size:13px; font-weight:600; }
+        .manage-user-role { font-size:10px; color:var(--text-secondary); }
+        .manage-action-btn {
+            border:0; border-radius:7px; padding:7px 9px; cursor:pointer;
+            background:var(--accent); color:white; font-size:11px;
+        }
+        .manage-action-btn.danger { background:#b42318; }
+        .blocked-badge { color:#ff6b6b; font-size:11px; }
+</style>
 </head>
 <body>
 
@@ -313,6 +339,7 @@
                 <div class="chat-header-info">
                     <h3 id="currentChatTitle">🌐 গ্লোবাল চ্যাট রুম</h3>
                     <span id="currentChatStatus" class="presence">Global Channel</span>
+                    <button id="chatManageBtn" class="chat-manage-btn" type="button" style="display:none;" onclick="openChatManage()">⋮</button>
                 </div>
             </div>
 
@@ -406,6 +433,7 @@
 
             updateMyUI();
             setupPresence();
+            listenToBlockedUsers();
             listenToSidebarData();
             startPresenceRefresh();
             switchChat('global', '🌐 গ্লোবাল চ্যাট রুম');
@@ -668,6 +696,7 @@
 
             // মেসেজ দেওয়া ইউজারদের লিস্টে আনা
             Object.keys(recentChats).forEach(uid => {
+                if (window.blockedUsers && window.blockedUsers[uid]) return;
                 const p = allUserProfiles[uid] || { name: 'Unknown', avatar: '👤' };
                 sidebarItems.push({
                     uid: uid,
@@ -811,6 +840,7 @@
 
             document.getElementById('currentChatTitle').innerText = title;
             updateChatHeaderPresence();
+            setChatManageButton();
 
             if (currentChatType === 'private' && recentChats[targetUid]?.unread) {
                 db.ref(`recent_chats/${myUid}/${targetUid}/unread`).set(false);
@@ -898,6 +928,8 @@
 
             document.getElementById('currentChatTitle').innerText = title;
             document.getElementById('currentChatStatus').innerText = 'Group Chat 👥';
+            window.currentGroupCreatedBy = '';
+            db.ref(`groups/${groupId}/createdBy`).once('value').then(s => { window.currentGroupCreatedBy = s.val() || ''; setChatManageButton(); });
 
             if (activeListenerRef) activeListenerRef.off();
 
@@ -1280,6 +1312,186 @@
             }
         }
 
+
+        function setChatManageButton() {
+            const btn = document.getElementById('chatManageBtn');
+            if (!btn) return;
+            btn.style.display = (currentChatType === 'private' || currentChatType === 'group') ? 'block' : 'none';
+        }
+
+        function openChatManage() {
+            setChatManageButton();
+            const overlay = document.getElementById('manageOverlay');
+            const title = document.getElementById('manageTitle');
+            const body = document.getElementById('manageBody');
+
+            if (currentChatType === 'private') {
+                const blocked = !!(window.blockedUsers && window.blockedUsers[targetUid]);
+                const p = allUserProfiles[targetUid] || {name: targetName, avatar:'👤'};
+
+                title.textContent = targetName || 'User';
+                body.innerHTML = `
+                    <div class="manage-user-row">
+                        <div class="avatar" id="manageUserAvatar"></div>
+                        <div class="manage-user-info">
+                            <div class="manage-user-name">${escapeHTML(p.name || targetName)}</div>
+                            <div class="manage-user-role">${blocked ? '<span class="blocked-badge">Blocked</span>' : 'Contact'}</div>
+                        </div>
+                    </div>
+                    <button class="manage-action-btn ${blocked ? '' : 'danger'}" onclick="${blocked ? 'unblockUser' : 'blockUser'}('${targetUid}')">
+                        ${blocked ? 'Unblock user' : 'Block user'}
+                    </button>
+                `;
+                renderAvatarElement(document.getElementById('manageUserAvatar'), p.avatar || '👤', p.name);
+            } else if (currentChatType === 'group') {
+                title.textContent = `${targetName} — Members`;
+                renderGroupManageBody(body);
+            }
+
+            overlay.style.display='flex';
+        }
+
+        function closeChatManage() {
+            document.getElementById('manageOverlay').style.display='none';
+        }
+
+        function renderGroupManageBody(body) {
+            const membersRef = db.ref(`groups/${targetUid}/members`);
+            membersRef.once('value').then(snap => {
+                const members = snap.val() || {};
+                const isOwner = (window.currentGroupCreatedBy || '') === myUid;
+
+                let htmlOut = `<div class="manage-section-title">Members (${Object.keys(members).length})</div>`;
+
+                Object.keys(members).forEach(uid => {
+                    const p = allUserProfiles[uid] || {name:'Unknown User', avatar:'👤'};
+                    htmlOut += `
+                        <div class="manage-user-row">
+                            <div class="avatar manage-avatar" data-avatar="${escapeHTML(p.avatar || '👤')}"></div>
+                            <div class="manage-user-info">
+                                <div class="manage-user-name">${escapeHTML(p.name || uid)}</div>
+                                <div class="manage-user-role">${uid === window.currentGroupCreatedBy ? 'Group admin' : 'Member'}</div>
+                            </div>
+                            ${isOwner && uid !== myUid
+                                ? `<button class="manage-action-btn danger" onclick="removeGroupMember('${targetUid}','${uid}')">Remove</button>`
+                                : ''}
+                        </div>`;
+                });
+
+                if (isOwner) {
+                    htmlOut += `
+                        <div class="manage-section-title">Add member</div>
+                        <input id="groupAddSearch" type="text" placeholder="🔍 Search user..." autocomplete="off">
+                        <div id="groupAddList" class="member-list" style="max-height:190px;margin-top:7px;"></div>
+                    `;
+                }
+
+                body.innerHTML = htmlOut;
+
+                body.querySelectorAll('.manage-avatar').forEach((el, i) => {
+                    renderAvatarElement(el, el.dataset.avatar || '👤');
+                });
+
+                if (isOwner) {
+                    renderGroupAddList();
+                    const search=document.getElementById('groupAddSearch');
+                    search.addEventListener('input', renderGroupAddList);
+                }
+            });
+        }
+
+        function renderGroupAddList() {
+            const list=document.getElementById('groupAddList');
+            if (!list) return;
+
+            db.ref(`groups/${targetUid}/members`).once('value').then(snap => {
+                const members=snap.val()||{};
+                const q=(document.getElementById('groupAddSearch')?.value||'').toLowerCase().trim();
+
+                const users=Object.keys(allUserProfiles||{})
+                    .filter(uid => uid !== myUid && !members[uid])
+                    .map(uid => ({uid, ...(allUserProfiles[uid]||{})}))
+                    .filter(u => !q || (u.name||'').toLowerCase().includes(q) || u.uid.toLowerCase().includes(q));
+
+                if (!users.length) {
+                    list.innerHTML='<div style="padding:14px;text-align:center;color:var(--text-secondary);font-size:12px;">No users found</div>';
+                    return;
+                }
+
+                list.innerHTML='';
+                users.forEach(u=>{
+                    const row=document.createElement('div');
+                    row.className='member-row';
+                    const av=document.createElement('div');
+                    av.className='avatar';
+                    renderAvatarElement(av,u.avatar||'👤',u.name);
+                    const info=document.createElement('div');
+                    info.className='member-row-info';
+                    info.innerHTML=`<div class="member-row-name">${escapeHTML(u.name||u.uid)}</div>`;
+                    const add=document.createElement('button');
+                    add.className='manage-action-btn';
+                    add.textContent='Add';
+                    add.onclick=async e=>{
+                        e.stopPropagation();
+                        await db.ref(`groups/${targetUid}/members/${u.uid}`).set(true);
+                        await db.ref(`group_members/${u.uid}/${targetUid}`).set({
+                            name: targetName,
+                            createdAt: firebase.database.ServerValue.TIMESTAMP
+                        });
+                        renderGroupManageBody(document.getElementById('manageBody'));
+                    };
+                    row.append(av,info,add);
+                    list.appendChild(row);
+                });
+            });
+        }
+
+        async function removeGroupMember(groupId, uid) {
+            if (!confirm('এই member-কে group থেকে remove করবেন?')) return;
+            try {
+                await db.ref(`groups/${groupId}/members/${uid}`).remove();
+                await db.ref(`group_members/${uid}/${groupId}`).remove();
+                renderGroupManageBody(document.getElementById('manageBody'));
+            } catch(e) {
+                console.error(e);
+                alert('Member remove করা যায়নি।');
+            }
+        }
+
+        async function blockUser(uid) {
+            if (!confirm('এই user-কে block করবেন?')) return;
+            try {
+                await db.ref(`blocked_users/${myUid}/${uid}`).set(true);
+                window.blockedUsers = window.blockedUsers || {};
+                window.blockedUsers[uid] = true;
+                closeChatManage();
+                renderSidebar();
+            } catch(e) {
+                console.error(e);
+                alert('Block করা যায়নি। Firebase Rules check করুন।');
+            }
+        }
+
+        async function unblockUser(uid) {
+            try {
+                await db.ref(`blocked_users/${myUid}/${uid}`).remove();
+                if (window.blockedUsers) delete window.blockedUsers[uid];
+                closeChatManage();
+                renderSidebar();
+            } catch(e) {
+                console.error(e);
+                alert('Unblock করা যায়নি।');
+            }
+        }
+
+        function listenToBlockedUsers() {
+            db.ref(`blocked_users/${myUid}`).on('value', snap => {
+                window.blockedUsers = snap.val() || {};
+                renderSidebar();
+                if (currentChatType === 'private') setChatManageButton();
+            });
+        }
+
         function handleEnter(e) {
             if (e.key === 'Enter') sendMessage();
         }
@@ -1407,6 +1619,14 @@
 
             <button onclick="createGroup()">গ্রুপ তৈরি করুন</button>
             <button onclick="closeGroupModal()" style="background:#334155;margin-top:5px;">বাতিল</button>
+        </div>
+    </div>
+
+    <div id="manageOverlay" class="modal-overlay" style="display:none;">
+        <div class="modal-card manage-modal-card">
+            <h2 id="manageTitle">Manage</h2>
+            <div id="manageBody"></div>
+            <button type="button" onclick="closeChatManage()" style="background:#334155;margin-top:8px;">Close</button>
         </div>
     </div>
 </body>
