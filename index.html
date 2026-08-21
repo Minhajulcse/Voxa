@@ -87,7 +87,20 @@
         .msg-status.sent { color: var(--text-secondary); }
         .msg-status.delivered { color: var(--text-secondary); }
         .msg-status.seen { color: #53bdeb; }
-        .message-actions { display: none; position: absolute; top: 4px; right: 5px; background: var(--panel); border-radius: 6px; padding: 3px; z-index: 2; box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+        .message-actions {
+            display: none;
+            position: absolute;
+            top: 4px;
+            right: 5px;
+            background: var(--panel);
+            border-radius: 6px;
+            padding: 3px;
+            z-index: 20;
+            box-shadow: 0 2px 8px rgba(0,0,0,.35);
+            pointer-events: auto;
+        }
+        .message:focus-within .message-actions { display: flex; gap: 3px; pointer-events: auto; }
+
         @media (hover: hover) and (pointer: fine) {
             }
         .message-actions button { border: none; background: transparent; color: var(--text-secondary); font-size: 11px; cursor: pointer; padding: 3px 5px; }
@@ -111,6 +124,9 @@
             font-size: 14px;
             min-width: 30px;
             min-height: 28px;
+            pointer-events: auto;
+            position: relative;
+            z-index: 21;
         }
         .msg-action-btn:hover { background: rgba(255,255,255,.08); color: var(--text-primary); }
         @media (hover: none), (pointer: coarse) {
@@ -896,16 +912,22 @@
             `;
 
             const unsendBtn = div.querySelector('.unsend-btn');
-            if (unsendBtn) unsendBtn.onclick = (e) => {
-                e.stopPropagation();
-                unsendMessage(chatPath, msg._key);
-            };
+            if (unsendBtn) {
+                unsendBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    unsendMessage(chatPath, msg._key);
+                });
+            }
 
             const deleteBtn = div.querySelector('.delete-btn');
-            if (deleteBtn) deleteBtn.onclick = (e) => {
-                e.stopPropagation();
-                deleteMessageForMe(chatPath, msg._key);
-            };
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    deleteMessageForMe(chatPath, msg._key);
+                });
+            }
 
             box.appendChild(div);
         }
