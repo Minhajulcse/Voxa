@@ -77,7 +77,8 @@
         .msg-status.delivered { color: var(--text-secondary); }
         .msg-status.seen { color: #53bdeb; }
         .message-actions { display: none; position: absolute; top: 4px; right: 5px; background: var(--panel); border-radius: 6px; padding: 3px; z-index: 2; box-shadow: 0 2px 8px rgba(0,0,0,.35); }
-        .message:hover .message-actions { display: flex; gap: 3px; }
+        @media (hover: hover) and (pointer: fine) {
+            }
         .message-actions button { border: none; background: transparent; color: var(--text-secondary); font-size: 11px; cursor: pointer; padding: 3px 5px; }
         .message-actions button:hover { color: var(--text-primary); }
         .unsent-message { color: var(--text-secondary); font-style: italic; }
@@ -102,7 +103,8 @@
         }
         .msg-action-btn:hover { background: rgba(255,255,255,.08); color: var(--text-primary); }
         @media (hover: none), (pointer: coarse) {
-            .message-actions { display: flex; opacity: .95; }
+            .message-actions { display: none; opacity: 1; }
+            .message-actions.touch-visible { display: flex; }
             .msg-action-btn { min-width: 34px; min-height: 32px; font-size: 15px; }
         }
         @media (max-width: 900px) {
@@ -716,19 +718,48 @@
                 });
         }
 
-        // Mobile-friendly long press to reveal message actions.
+        // Mobile/iPad: actions stay hidden. Long-press a message to reveal them briefly.
         let longPressTimer = null;
+        let longPressTriggered = false;
+
+        function hideAllMessageActions() {
+            document.querySelectorAll('.message-actions.touch-visible').forEach(a => {
+                a.classList.remove('touch-visible');
+            });
+        }
+
         document.addEventListener('touchstart', (e) => {
             const message = e.target.closest('.message');
-            if (!message) return;
+            if (!message) {
+                hideAllMessageActions();
+                return;
+            }
+
+            longPressTriggered = false;
             longPressTimer = setTimeout(() => {
-                document.querySelectorAll('.message-actions').forEach(a => a.style.display = 'none');
+                hideAllMessageActions();
                 const actions = message.querySelector('.message-actions');
-                if (actions) actions.style.display = 'flex';
+                if (actions) {
+                    actions.classList.add('touch-visible');
+                    longPressTriggered = true;
+                    setTimeout(() => actions.classList.remove('touch-visible'), 3500);
+                }
             }, 500);
         }, {passive:true});
-        document.addEventListener('touchend', () => clearTimeout(longPressTimer), {passive:true});
-        document.addEventListener('touchmove', () => clearTimeout(longPressTimer), {passive:true});
+
+        document.addEventListener('touchend', () => {
+            clearTimeout(longPressTimer);
+        }, {passive:true});
+
+        document.addEventListener('touchmove', () => {
+            clearTimeout(longPressTimer);
+        }, {passive:true});
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.message-actions')) {
+                hideAllMessageActions();
+            }
+        });
 
         function handleEnter(e) {
             if (e.key === 'Enter') sendMessage();
