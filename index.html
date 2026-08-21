@@ -23,13 +23,13 @@
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; }
         body { background: var(--bg-main); color: var(--text-primary); height: 100vh; display: flex; justify-content: center; align-items: center; }
 
-        /* Login Screen */
-        .login-overlay { position: fixed; inset: 0; background: var(--bg-main); display: flex; justify-content: center; align-items: center; z-index: 100; }
-        .login-card { background: var(--bg-side); padding: 30px; border-radius: 12px; width: 90%; max-width: 380px; text-align: center; border: 1px solid var(--border-color); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .login-card h2 { color: var(--accent); margin-bottom: 10px; }
-        .login-card input { width: 100%; padding: 12px; background: var(--panel); border: 1px solid var(--border-color); border-radius: 8px; color: #fff; font-size: 16px; margin: 15px 0; outline: none; }
-        .login-card button { width: 100%; padding: 12px; background: var(--accent); color: #fff; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        .login-card button:hover { opacity: 0.9; }
+        /* Login & Settings Modal Overlay */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 100; }
+        .modal-card { background: var(--bg-side); padding: 30px; border-radius: 12px; width: 90%; max-width: 380px; text-align: center; border: 1px solid var(--border-color); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .modal-card h2 { color: var(--accent); margin-bottom: 10px; }
+        .modal-card input { width: 100%; padding: 12px; background: var(--panel); border: 1px solid var(--border-color); border-radius: 8px; color: #fff; font-size: 16px; margin: 10px 0; outline: none; }
+        .modal-card button { width: 100%; padding: 12px; background: var(--accent); color: #fff; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; margin-top: 10px; }
+        .modal-card button:hover { opacity: 0.9; }
 
         /* App Container */
         .app-container { width: 100vw; height: 100vh; max-width: 1400px; display: flex; background: var(--bg-side); overflow: hidden; }
@@ -37,18 +37,25 @@
         /* Sidebar */
         .sidebar { width: 340px; border-right: 1px solid var(--border-color); display: flex; flex-direction: column; background: var(--bg-side); }
         .user-profile-bar { padding: 15px; background: var(--panel); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-color); }
-        .user-profile-bar .name { font-weight: bold; color: var(--accent); }
+        .user-profile-left { display: flex; align-items: center; gap: 10px; overflow: hidden; cursor: pointer; }
+        .user-profile-left:hover opacity { opacity: 0.8; }
+        .user-profile-bar .name { font-weight: bold; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .settings-btn { background: transparent; border: none; color: var(--text-secondary); font-size: 18px; cursor: pointer; padding: 5px; }
+        .settings-btn:hover { color: var(--text-primary); }
+
         .online-list-header { padding: 12px 15px; font-size: 13px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
         .chat-list { flex: 1; overflow-y: auto; list-style: none; }
         .chat-item { padding: 14px 15px; display: flex; align-items: center; gap: 12px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.03); transition: 0.2s; }
         .chat-item:hover, .chat-item.active { background: var(--panel); }
-        .avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--panel); display: flex; justify-content: center; align-items: center; font-weight: bold; position: relative; border: 1px solid var(--border-color); flex-shrink: 0;}
+        
+        .avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--panel); display: flex; justify-content: center; align-items: center; font-weight: bold; position: relative; border: 1px solid var(--border-color); flex-shrink: 0; overflow: hidden; }
+        .avatar img { width: 100%; height: 100%; object-fit: cover; }
         .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #25d366; position: absolute; bottom: 0; right: 0; border: 2px solid var(--bg-side); }
+        
         .chat-info { flex: 1; overflow: hidden; }
         .chat-info .title { font-weight: 500; font-size: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;}
         .chat-info .subtitle { font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; justify-content: space-between; align-items: center;}
         
-        /* Unread Badge CSS */
         .subtitle.unread { font-weight: bold; color: var(--text-primary); }
         .unread-badge { background: #25d366; color: #111b21; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 10px; margin-left: 5px; line-height: 1;}
 
@@ -80,13 +87,26 @@
 </head>
 <body>
 
-    <!-- Login Modal -->
-    <div id="loginOverlay" class="login-overlay">
-        <div class="login-card">
+    <!-- First Time Login Modal -->
+    <div id="loginOverlay" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
             <h2>RoomChat Pro 💬</h2>
-            <p style="color: var(--text-secondary); font-size: 14px;">চ্যাট শুরু করতে আপনার নাম লিখুন</p>
-            <input type="text" id="usernameInput" placeholder="আপনার নাম..." autocomplete="off">
-            <button onclick="login()">প্রবেশ করুন</button>
+            <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 15px;">চ্যাট শুরু করতে আপনার নাম এবং প্রোফাইল পিকচারের লিংক (বা ইমোজি) দিন</p>
+            <input type="text" id="regNameInput" placeholder="আপনার নাম..." autocomplete="off">
+            <input type="text" id="regAvatarInput" placeholder="প্রোফাইল ছবির লিংক (ঐচ্ছিক) বা ইমোজি 👤" autocomplete="off">
+            <button onclick="registerUser()">অ্যাকাউন্ট তৈরি করুন</button>
+        </div>
+    </div>
+
+    <!-- Edit Profile / Settings Modal -->
+    <div id="settingsOverlay" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
+            <h2>প্রোফাইল সেটিংস ⚙️</h2>
+            <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">আপনার নাম বা ছবি পরিবর্তন করুন</p>
+            <input type="text" id="editNameInput" placeholder="নতুন নাম..." autocomplete="off">
+            <input type="text" id="editAvatarInput" placeholder="নতুন ছবির লিংক বা ইমোজি..." autocomplete="off">
+            <button onclick="saveProfileChanges()">সংরক্ষণ করুন</button>
+            <button onclick="closeSettings()" style="background: #334155; margin-top: 5px;">বাতিল</button>
         </div>
     </div>
 
@@ -95,15 +115,16 @@
         <!-- Sidebar -->
         <div class="sidebar">
             <div class="user-profile-bar">
-                <div>
-                    <span style="font-size: 13px; color: var(--text-secondary);">Logged in as:</span>
-                    <div class="name" id="myProfileName">Anonymous</div>
+                <div class="user-profile-left" onclick="openSettings()">
+                    <div class="avatar" id="mySidebarAvatar">👤</div>
+                    <div class="name" id="myProfileName">লোড হচ্ছে...</div>
                 </div>
+                <button class="settings-btn" onclick="openSettings()" title="Settings">⚙️</button>
             </div>
 
             <div class="online-list-header">কথোপকথন ও অনলাইন ইউজার</div>
             <ul class="chat-list" id="chatList">
-                <!-- Sidebar items will load dynamically here -->
+                <!-- Sidebar items -->
             </ul>
         </div>
 
@@ -117,7 +138,7 @@
             </div>
 
             <div class="messages-box" id="messagesBox">
-                <!-- Messages will appear here -->
+                <!-- Messages -->
             </div>
 
             <div class="input-bar">
@@ -128,7 +149,6 @@
     </div>
 
     <script>
-        // আপনার Firebase কনফিগারেশন + Database URL
         const firebaseConfig = {
             apiKey: "AIzaSyCwAWShdsGnzlL25_0PwhBHbNNW9BvN6j0",
             authDomain: "roomchat-13d45.firebaseapp.com",
@@ -139,13 +159,18 @@
             appId: "1:859702863241:web:b3c1b66fd252781f852d58"
         };
 
-        // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
 
-        let myUid = localStorage.getItem('pro_chat_uid') || 'u_' + Math.random().toString(36).substring(2, 9);
-        localStorage.setItem('pro_chat_uid', myUid);
+        // পার্মানেন্ট ইউনিক আইডি যা ব্রাউজারে স্থায়ীভাবে সেভ থাকবে
+        let myUid = localStorage.getItem('pro_chat_permanent_uid');
+        if (!myUid) {
+            myUid = 'u_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+            localStorage.setItem('pro_chat_permanent_uid', myUid);
+        }
+
         let myName = localStorage.getItem('pro_chat_name');
+        let myAvatar = localStorage.getItem('pro_chat_avatar') || '👤';
 
         let currentChatType = 'global'; 
         let targetUid = null;
@@ -154,27 +179,92 @@
 
         let onlineUsers = {};
         let recentChats = {};
+        let allUserProfiles = {};
 
         window.onload = () => {
-            if (myName) {
-                document.getElementById('usernameInput').value = myName;
+            if (!myName) {
+                document.getElementById('loginOverlay').style.display = 'flex';
+            } else {
+                initApp();
             }
         };
 
-        function login() {
-            const input = document.getElementById('usernameInput').value.trim();
-            if (!input) return;
-            myName = input;
-            localStorage.setItem('pro_chat_name', myName);
-            document.getElementById('myProfileName').innerText = myName;
-            document.getElementById('loginOverlay').style.display = 'none';
+        function registerUser() {
+            const name = document.getElementById('regNameInput').value.trim();
+            const avatar = document.getElementById('regAvatarInput').value.trim() || '👤';
+            if (!name) {
+                alert("দয়া করে আপনার নাম লিখুন!");
+                return;
+            }
 
+            myName = name;
+            myAvatar = avatar;
+            localStorage.setItem('pro_chat_name', myName);
+            localStorage.setItem('pro_chat_avatar', myAvatar);
+
+            document.getElementById('loginOverlay').style.display = 'none';
+            initApp();
+        }
+
+        function initApp() {
+            // ফায়ারবেসে ইউজারের স্থায়ী প্রোফাইল আপডেট বা সেভ করা
+            db.ref(`users/${myUid}`).set({
+                name: myName,
+                avatar: myAvatar,
+                uid: myUid
+            });
+
+            updateMyUI();
             setupPresence();
             listenToSidebarData();
             switchChat('global', '🌐 গ্লোবাল চ্যাট রুম');
         }
 
-        // লাইভ প্রেজেন্স লজিক
+        function updateMyUI() {
+            document.getElementById('myProfileName').innerText = myName;
+            const avatarDiv = document.getElementById('mySidebarAvatar');
+            if (myAvatar.startsWith('http')) {
+                avatarDiv.innerHTML = `<img src="${myAvatar}" alt="Avatar">`;
+            } else {
+                avatarDiv.innerHTML = myAvatar;
+            }
+        }
+
+        // সেটিংস মডাল ওপেন/ক্লোজ
+        function openSettings() {
+            document.getElementById('editNameInput').value = myName;
+            document.getElementById('editAvatarInput').value = myAvatar;
+            document.getElementById('settingsOverlay').style.display = 'flex';
+        }
+
+        function closeSettings() {
+            document.getElementById('settingsOverlay').style.display = 'none';
+        }
+
+        function saveProfileChanges() {
+            const newName = document.getElementById('editNameInput').value.trim();
+            const newAvatar = document.getElementById('editAvatarInput').value.trim() || '👤';
+            if (!newName) {
+                alert("নাম খালি রাখা যাবে না!");
+                return;
+            }
+
+            myName = newName;
+            myAvatar = newAvatar;
+            localStorage.setItem('pro_chat_name', myName);
+            localStorage.setItem('pro_chat_avatar', myAvatar);
+
+            // ডাটাবেজে প্রোফাইল আপডেট করা
+            db.ref(`users/${myUid}`).update({
+                name: myName,
+                avatar: myAvatar
+            });
+
+            updateMyUI();
+            closeSettings();
+        }
+
+        // লাইভ প্রেজেন্স ও প্রোফাইল ক্যাশ করা
         function setupPresence() {
             const myPresenceRef = db.ref(`presence/${myUid}`);
             const connectedRef = db.ref('.info/connected');
@@ -183,7 +273,6 @@
                 if (snap.val() === true) {
                     myPresenceRef.onDisconnect().remove();
                     myPresenceRef.set({
-                        name: myName,
                         uid: myUid,
                         lastSeen: firebase.database.ServerValue.TIMESTAMP
                     });
@@ -191,26 +280,29 @@
             });
         }
 
-        // সাইডবারের ডাটা (Online users & Recent messages) শোনা
         function listenToSidebarData() {
-            // ১. অনলাইন ইউজার ট্র্যাক করা
+            // ১. সব ইউজারের প্রোফাইল ইনফো ট্র্যাক করা (যাতে সবার সঠিক নাম ও ছবি পাওয়া যায়)
+            db.ref('users').on('value', (snapshot) => {
+                allUserProfiles = snapshot.val() || {};
+                renderSidebar();
+            });
+
+            // ২. অনলাইন ইউজার ট্র্যাক করা
             db.ref('presence').on('value', (snapshot) => {
                 onlineUsers = snapshot.val() || {};
                 renderSidebar();
             });
 
-            // ২. নিজের রিসেন্ট মেসেজ ট্র্যাক করা
+            // ৩. নিজের রিসেন্ট চ্যাট ট্র্যাক করা
             db.ref(`recent_chats/${myUid}`).on('value', (snapshot) => {
                 recentChats = snapshot.val() || {};
                 renderSidebar();
             });
         }
 
-        // সাইডবার সাজানো এবং আপডেট করা
         function renderSidebar() {
             const list = document.getElementById('chatList');
             
-            // সব ক্লিয়ার করে গ্লোবাল চ্যাট আগে অ্যাড করা
             list.innerHTML = `
                 <li class="chat-item ${currentChatType === 'global' ? 'active' : ''}" onclick="switchChat('global', '🌐 গ্লোবাল চ্যাট রুম')">
                     <div class="avatar">🌐</div>
@@ -223,11 +315,13 @@
 
             let sidebarItems = [];
 
-            // যারা মেসেজ দিয়েছে তাদের লিস্টে অ্যাড করা
+            // মেসেজ দেওয়া ইউজারদের লিস্টে আনা
             Object.keys(recentChats).forEach(uid => {
+                const p = allUserProfiles[uid] || { name: 'Unknown', avatar: '👤' };
                 sidebarItems.push({
                     uid: uid,
-                    name: recentChats[uid].partnerName || 'Unknown',
+                    name: p.name,
+                    avatar: p.avatar,
                     isOnline: !!onlineUsers[uid],
                     timestamp: recentChats[uid].timestamp || 0,
                     text: recentChats[uid].text,
@@ -235,36 +329,39 @@
                 });
             });
 
-            // যারা অনলাইন আছে কিন্তু মেসেজ দেয়নি, তাদের অ্যাড করা
+            // অনলাইন ইউজার যারা মেসেজ দেয়নি
             Object.keys(onlineUsers).forEach(uid => {
                 if (uid !== myUid && !recentChats[uid]) {
+                    const p = allUserProfiles[uid] || { name: 'User', avatar: '👤' };
                     sidebarItems.push({
                         uid: uid,
-                        name: onlineUsers[uid].name,
+                        name: p.name,
+                        avatar: p.avatar,
                         isOnline: true,
                         timestamp: 0, 
-                        text: 'নতুন ইউজার',
+                        text: 'কথোপকথন শুরু করুন',
                         unread: false
                     });
                 }
             });
 
-            // টাইমস্ট্যাম্প অনুযায়ী সাজানো (যে মেসেজ দিয়েছে সে উপরে আসবে)
+            // টাইমস্ট্যাম্প অনুযায়ী রিসেন্ট চ্যাট উপরে সাজানো
             sidebarItems.sort((a, b) => b.timestamp - a.timestamp);
 
-            // লিস্ট প্রিন্ট করা
             sidebarItems.forEach(u => {
                 const timeStr = u.timestamp ? new Date(u.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
                 const unreadBadge = u.unread ? `<div class="unread-badge">New</div>` : '';
                 const subtitleClass = u.unread ? 'subtitle unread' : 'subtitle';
                 const statusDot = u.isOnline ? `<div class="status-dot"></div>` : '';
 
+                let avatarHtml = u.avatar.startsWith('http') ? `<img src="${u.avatar}">` : u.avatar;
+
                 const li = document.createElement('li');
                 li.className = `chat-item ${targetUid === u.uid ? 'active' : ''}`;
                 li.onclick = () => switchChat(u.uid, u.name);
                 li.innerHTML = `
                     <div class="avatar">
-                        ${u.name.charAt(0).toUpperCase()}
+                        ${avatarHtml}
                         ${statusDot}
                     </div>
                     <div class="chat-info">
@@ -282,7 +379,6 @@
             });
         }
 
-        // চ্যাট সুইচিং 
         function switchChat(type, title) {
             currentChatType = (type === 'global') ? 'global' : 'private';
             targetUid = (type === 'global') ? null : type;
@@ -291,12 +387,11 @@
             document.getElementById('currentChatTitle').innerText = title;
             document.getElementById('currentChatStatus').innerText = (type === 'global') ? 'Public Room' : 'Direct Message (🔒 Private)';
 
-            // মেসেজ রিড (Read) করে দেওয়া
             if (currentChatType === 'private' && recentChats[targetUid] && recentChats[targetUid].unread) {
                 db.ref(`recent_chats/${myUid}/${targetUid}/unread`).set(false);
             }
 
-            renderSidebar(); // Active ক্লাস আপডেট করার জন্য
+            renderSidebar();
 
             if (activeListenerRef) activeListenerRef.off();
             const messagesBox = document.getElementById('messagesBox');
@@ -311,7 +406,6 @@
             });
         }
 
-        // মেসেজ পাঠানো 
         function sendMessage() {
             const input = document.getElementById('msgInput');
             const text = input.value.trim();
@@ -321,6 +415,7 @@
             const msgData = {
                 senderUid: myUid,
                 senderName: myName,
+                senderAvatar: myAvatar,
                 text: text,
                 timestamp: ts
             };
@@ -335,7 +430,6 @@
                 const newMsgKey = db.ref(`messages/private/${dmId}`).push().key;
                 updates[`messages/private/${dmId}/${newMsgKey}`] = msgData;
 
-                // Recent Chats আপডেট করা (যাতে উপরে আসে এবং Unread দেখায়)
                 updates[`recent_chats/${myUid}/${targetUid}`] = {
                     timestamp: ts,
                     text: text,
@@ -345,7 +439,7 @@
                 updates[`recent_chats/${targetUid}/${myUid}`] = {
                     timestamp: ts,
                     text: text,
-                    unread: true, // যার কাছে মেসেজ যাচ্ছে তার unread ট্রু হবে
+                    unread: true,
                     partnerName: myName
                 };
             }
