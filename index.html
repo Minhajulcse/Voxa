@@ -189,6 +189,72 @@
         }
         .emoji-item:hover { background:rgba(255,255,255,.08); }
 
+    
+        .group-modal-card { max-width: 430px; }
+        .member-search-wrap input { margin: 7px 0 8px; }
+        .member-list {
+            max-height: 260px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            background: var(--bg-main);
+            text-align: left;
+        }
+        .member-row {
+            display:flex;
+            align-items:center;
+            gap:10px;
+            padding:9px 10px;
+            border-bottom:1px solid rgba(255,255,255,.04);
+            cursor:pointer;
+        }
+        .member-row:last-child { border-bottom:0; }
+        .member-row:hover { background:var(--panel); }
+        .member-row.selected { background:rgba(0,168,132,.12); }
+        .member-row .avatar { width:38px; height:38px; }
+        .member-row-info { flex:1; min-width:0; }
+        .member-row-name { font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .member-row-uid { font-size:10px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .member-check {
+            width:22px;
+            height:22px;
+            border-radius:50%;
+            border:2px solid var(--text-secondary);
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            flex-shrink:0;
+            color:#fff;
+            font-size:13px;
+        }
+        .member-row.selected .member-check { background:var(--accent); border-color:var(--accent); }
+        .selected-members {
+            display:flex;
+            flex-wrap:wrap;
+            gap:6px;
+            min-height:0;
+            margin:4px 0;
+        }
+        .selected-member-chip {
+            display:flex;
+            align-items:center;
+            gap:5px;
+            background:var(--panel);
+            border:1px solid var(--border-color);
+            border-radius:16px;
+            padding:4px 8px 4px 5px;
+            font-size:12px;
+        }
+        .selected-member-chip button {
+            width:auto !important;
+            margin:0 !important;
+            padding:0 2px !important;
+            background:transparent !important;
+            color:var(--text-secondary) !important;
+            font-size:14px !important;
+        }
+        .group-selected-count { color:var(--text-secondary); font-size:11px; text-align:left; margin:6px 0; }
+
     </style>
 </head>
 <body>
@@ -1008,29 +1074,156 @@
             }
         });
 
+        let selectedGroupMembers = {};
+
         function openGroupModal() {
+            selectedGroupMembers = {};
             document.getElementById('groupOverlay').style.display = 'flex';
+            document.getElementById('groupNameInput').value = '';
+            document.getElementById('memberSearchInput').value = '';
+            renderGroupMembers();
+            renderSelectedMembers();
             document.getElementById('groupNameInput').focus();
         }
 
         function closeGroupModal() {
             document.getElementById('groupOverlay').style.display = 'none';
+            selectedGroupMembers = {};
         }
+
+        function renderGroupMembers() {
+            const list = document.getElementById('memberList');
+            if (!list) return;
+
+            const search = (document.getElementById('memberSearchInput')?.value || '').trim().toLowerCase();
+            const profiles = allUserProfiles || {};
+
+            const users = Object.keys(profiles)
+                .filter(uid => uid !== myUid)
+                .map(uid => ({
+                    uid,
+                    name: profiles[uid]?.name || 'Unknown User',
+                    avatar: profiles[uid]?.avatar || '👤'
+                }))
+                .filter(u =>
+                    !search ||
+                    u.name.toLowerCase().includes(search) ||
+                    u.uid.toLowerCase().includes(search)
+                )
+                .sort((a,b) => a.name.localeCompare(b.name));
+
+            if (!users.length) {
+                list.innerHTML = '<div style="padding:18px;text-align:center;color:var(--text-secondary);font-size:13px;">কোনো user পাওয়া যায়নি</div>';
+                return;
+            }
+
+            list.innerHTML = '';
+
+            users.forEach(user => {
+                const selected = !!selectedGroupMembers[user.uid];
+
+                const row = document.createElement('div');
+                row.className = `member-row ${selected ? 'selected' : ''}`;
+
+                const avatar = document.createElement('div');
+                avatar.className = 'avatar';
+                renderAvatarElement(avatar, user.avatar, user.name);
+
+                const info = document.createElement('div');
+                info.className = 'member-row-info';
+
+                const name = document.createElement('div');
+                name.className = 'member-row-name';
+                name.textContent = user.name;
+
+                const uid = document.createElement('div');
+                uid.className = 'member-row-uid';
+                uid.textContent = user.uid;
+
+                info.appendChild(name);
+                info.appendChild(uid);
+
+                const check = document.createElement('div');
+                check.className = 'member-check';
+                check.textContent = selected ? '✓' : '';
+
+                row.appendChild(avatar);
+                row.appendChild(info);
+                row.appendChild(check);
+
+                row.addEventListener('click', () => {
+                    if (selectedGroupMembers[user.uid]) {
+                        delete selectedGroupMembers[user.uid];
+                    } else {
+                        selectedGroupMembers[user.uid] = {
+                            uid: user.uid,
+                            name: user.name,
+                            avatar: user.avatar
+                        };
+                    }
+                    renderGroupMembers();
+                    renderSelectedMembers();
+                });
+
+                list.appendChild(row);
+            });
+        }
+
+        function renderSelectedMembers() {
+            const container = document.getElementById('selectedMembers');
+            const count = document.getElementById('groupSelectedCount');
+            if (!container || !count) return;
+
+            const members = Object.values(selectedGroupMembers);
+
+            container.innerHTML = '';
+            members.forEach(user => {
+                const chip = document.createElement('div');
+                chip.className = 'selected-member-chip';
+
+                const avatar = document.createElement('span');
+                avatar.style.cssText = 'width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;overflow:hidden;';
+                renderAvatarElement(avatar, user.avatar, user.name);
+
+                const label = document.createElement('span');
+                label.textContent = user.name;
+
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.textContent = '×';
+                remove.onclick = () => {
+                    delete selectedGroupMembers[user.uid];
+                    renderGroupMembers();
+                    renderSelectedMembers();
+                };
+
+                chip.appendChild(avatar);
+                chip.appendChild(label);
+                chip.appendChild(remove);
+                container.appendChild(chip);
+            });
+
+            count.textContent = `${members.length} member${members.length === 1 ? '' : 's'} selected`;
+        }
+
+        document.addEventListener('input', (e) => {
+            if (e.target.id === 'memberSearchInput') {
+                renderGroupMembers();
+            }
+        });
 
         async function createGroup() {
             const name = document.getElementById('groupNameInput').value.trim();
-            const rawMembers = document.getElementById('groupMembersInput').value.trim();
 
             if (!name) {
                 alert('গ্রুপের নাম দিন।');
                 return;
             }
 
-            // Creator is always included.
             const members = {};
             members[myUid] = true;
 
-            rawMembers.split(',').map(x => x.trim()).filter(Boolean).forEach(uid => {
+            Object.keys(selectedGroupMembers).forEach(uid => {
                 members[uid] = true;
             });
 
@@ -1046,24 +1239,20 @@
                     members: members
                 });
 
-                await db.ref(`group_members/${myUid}/${groupId}`).set({
-                    name: name,
-                    createdAt: firebase.database.ServerValue.TIMESTAMP
-                });
-
-                for (const uid of Object.keys(members)) {
-                    await db.ref(`group_members/${uid}/${groupId}`).set({
+                const updates = {};
+                Object.keys(members).forEach(uid => {
+                    updates[`group_members/${uid}/${groupId}`] = {
                         name: name,
                         createdAt: firebase.database.ServerValue.TIMESTAMP
-                    });
-                }
+                    };
+                });
+
+                await db.ref().update(updates);
 
                 closeGroupModal();
-                document.getElementById('groupNameInput').value = '';
-                document.getElementById('groupMembersInput').value = '';
-                alert('গ্রুপ তৈরি হয়েছে।');
+                alert(`"${name}" group তৈরি হয়েছে।`);
             } catch (error) {
-                console.error(error);
+                console.error('Group creation failed:', error);
                 alert('গ্রুপ তৈরি করা যায়নি। Firebase Rules check করুন।');
             }
         }
@@ -1157,15 +1346,27 @@
     </script>
 
     <div id="groupOverlay" class="modal-overlay" style="display:none;">
-        <div class="modal-card">
+        <div class="modal-card group-modal-card">
             <h2>নতুন গ্রুপ 👥</h2>
-            <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">গ্রুপের নাম দিন এবং সদস্যদের UID কমা দিয়ে লিখুন</p>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
+                গ্রুপের নাম দিন এবং আপনার contacts থেকে member select করুন
+            </p>
+
             <input type="text" id="groupNameInput" placeholder="গ্রুপের নাম..." autocomplete="off">
-            <input type="text" id="groupMembersInput" placeholder="Member UID (optional), comma separated" autocomplete="off">
+
+            <div class="selected-members" id="selectedMembers"></div>
+
+            <div class="member-search-wrap">
+                <input type="text" id="memberSearchInput" placeholder="🔍 User খুঁজুন..." autocomplete="off">
+            </div>
+
+            <div class="member-list" id="memberList"></div>
+
+            <div class="group-selected-count" id="groupSelectedCount">0 members selected</div>
+
             <button onclick="createGroup()">গ্রুপ তৈরি করুন</button>
-            <button onclick="closeGroupModal()" style="background:#334155; margin-top:5px;">বাতিল</button>
+            <button onclick="closeGroupModal()" style="background:#334155;margin-top:5px;">বাতিল</button>
         </div>
     </div>
-
 </body>
 </html>
