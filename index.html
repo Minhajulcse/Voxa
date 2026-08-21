@@ -72,6 +72,11 @@
         .message.received { align-self: flex-start; background: var(--bubble-other); border-top-left-radius: 0; }
         .msg-sender { font-size: 12px; font-weight: bold; color: var(--accent); margin-bottom: 3px; }
         .msg-time { font-size: 10px; color: var(--text-secondary); float: right; margin-left: 10px; margin-top: 5px; }
+        .msg-status { font-size: 11px; margin-left: 4px; font-weight: bold; }
+        .msg-status.sent { color: var(--text-secondary); }
+        .msg-status.delivered { color: var(--text-secondary); }
+        .msg-status.seen { color: #53bdeb; }
+        .chat-header-info .presence { color: var(--text-secondary); }
 
         /* Message Input */
         .input-bar { padding: 12px 20px; background: var(--panel); display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--border-color); }
@@ -138,7 +143,7 @@
             <div class="chat-header">
                 <div class="chat-header-info">
                     <h3 id="currentChatTitle">🌐 গ্লোবাল চ্যাট রুম</h3>
-                    <span id="currentChatStatus">Global Channel</span>
+                    <span id="currentChatStatus" class="presence">Global Channel</span>
                 </div>
             </div>
 
@@ -220,10 +225,11 @@
 
         function initApp() {
             // ফায়ারবেসে ইউজারের স্থায়ী প্রোফাইল আপডেট বা সেভ করা
-            db.ref(`users/${myUid}`).set({
+            db.ref(`users/${myUid}`).update({
                 name: myName,
                 avatar: myAvatar,
-                uid: myUid
+                uid: myUid,
+                lastSeen: firebase.database.ServerValue.TIMESTAMP
             });
 
             updateMyUI();
@@ -279,6 +285,8 @@
                 });
 
                 updateMyUI();
+                renderSidebar();
+                updateChatHeaderPresence();
                 closeSettings();
                 document.getElementById('editAvatarFile').value = '';
             } catch (error) {
@@ -296,20 +304,52 @@
             return await ref.getDownloadURL();
         }
 
-        // লাইভ প্রেজেন্স ও প্রোফাইল ক্যাশ করা
+        // লাইভ প্রেজেন্স + last seen
         function setupPresence() {
             const myPresenceRef = db.ref(`presence/${myUid}`);
+            const myUserRef = db.ref(`users/${myUid}`);
             const connectedRef = db.ref('.info/connected');
 
             connectedRef.on('value', (snap) => {
                 if (snap.val() === true) {
                     myPresenceRef.onDisconnect().remove();
+                    myUserRef.child('lastSeen').onDisconnect().set(firebase.database.ServerValue.TIMESTAMP);
+
                     myPresenceRef.set({
                         uid: myUid,
                         lastSeen: firebase.database.ServerValue.TIMESTAMP
                     });
+
+                    myUserRef.update({
+                        lastSeen: firebase.database.ServerValue.TIMESTAMP
+                    });
                 }
             });
+        }
+
+        function formatLastSeen(timestamp) {
+            if (!timestamp) return 'last seen recently';
+            return 'last seen ' + new Date(timestamp).toLocaleString([], {
+                day: '2-digit',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        function updateChatHeaderPresence() {
+            const statusEl = document.getElementById('currentChatStatus');
+
+            if (currentChatType === 'global') {
+                statusEl.textContent = 'Public Room';
+                return;
+            }
+
+            const online = !!onlineUsers[targetUid];
+            const profile = allUserProfiles[targetUid] || {};
+            const lastSeen = profile.lastSeen || onlineUsers[targetUid]?.lastSeen;
+
+            statusEl.textContent = online ? 'Active now' : formatLastSeen(lastSeen);
         }
 
         function listenToSidebarData() {
@@ -323,15 +363,35 @@
             db.ref('presence').on('value', (snapshot) => {
                 onlineUsers = snapshot.val() || {};
                 renderSidebar();
+                updateChatHeaderPresence();
             });
 
             // ৩. নিজের রিসেন্ট চ্যাট ট্র্যাক করা
             db.ref(`recent_chats/${myUid}`).on('value', (snapshot) => {
                 recentChats = snapshot.val() || {};
-                if (currentChatType === 'private' && targetUid && recentChats[targetUid]?.unread) {
-                    db.ref(`recent_chats/${myUid}/${targetUid}/unread`).set(false);
-                }
+
+                Object.keys(recentChats).forEach(uid => {
+                    const chat = recentChats[uid];
+                    if (chat && chat.messageId) {
+                        const messageRef = db.ref(`messages/private/${[myUid, uid].sort().join('_')}/${chat.messageId}`);
+
+                        // Recipient's app has received the recent-chat update.
+                        if (chat.unread) {
+                            messageRef.child('status').transaction(current => {
+                                return current === 'seen' ? 'seen' : 'delivered';
+                            });
+                        }
+
+                        // If this chat is currently open, mark incoming message as seen.
+                        if (currentChatType === 'private' && targetUid === uid && chat.unread) {
+                            messageRef.child('status').set('seen');
+                            db.ref(`recent_chats/${myUid}/${uid}/unread`).set(false);
+                        }
+                    }
+                });
+
                 renderSidebar();
+                updateChatHeaderPresence();
             });
         }
 
@@ -445,25 +505,48 @@
             targetName = title;
 
             document.getElementById('currentChatTitle').innerText = title;
-            document.getElementById('currentChatStatus').innerText = (type === 'global') ? 'Public Room' : 'Direct Message (🔒 Private)';
+            updateChatHeaderPresence();
 
-            if (currentChatType === 'private' && recentChats[targetUid] && recentChats[targetUid].unread) {
+            if (currentChatType === 'private' && recentChats[targetUid]?.unread) {
                 db.ref(`recent_chats/${myUid}/${targetUid}/unread`).set(false);
             }
 
             renderSidebar();
 
             if (activeListenerRef) activeListenerRef.off();
+
             const messagesBox = document.getElementById('messagesBox');
             messagesBox.innerHTML = '';
 
-            let chatPath = (currentChatType === 'global') ? 'messages/global' : `messages/private/${[myUid, targetUid].sort().join('_')}`;
+            const chatPath = (currentChatType === 'global')
+                ? 'messages/global'
+                : `messages/private/${[myUid, targetUid].sort().join('_')}`;
 
             activeListenerRef = db.ref(chatPath).limitToLast(60);
-            activeListenerRef.on('child_added', (snapshot) => {
-                const msg = snapshot.val();
-                renderMessage(msg);
+
+            // value listener is used so sent/delivered/seen status updates live.
+            activeListenerRef.on('value', (snapshot) => {
+                messagesBox.innerHTML = '';
+                snapshot.forEach(child => {
+                    const msg = child.val();
+                    msg._key = child.key;
+
+                    // Opening the conversation means incoming messages are seen.
+                    if (currentChatType === 'private' &&
+                        msg.senderUid === targetUid &&
+                        msg.status !== 'seen') {
+                        db.ref(`${chatPath}/${child.key}/status`).set('seen');
+                    }
+
+                    renderMessage(msg);
+                });
             });
+
+            // Mark the latest recent message as seen when opening the chat.
+            if (currentChatType === 'private' && recentChats[targetUid]?.messageId) {
+                db.ref(`messages/private/${[myUid, targetUid].sort().join('_')}/${recentChats[targetUid].messageId}/status`).set('seen');
+                db.ref(`recent_chats/${myUid}/${targetUid}/unread`).set(false);
+            }
         }
 
         function sendMessage() {
@@ -477,7 +560,8 @@
                 senderName: myName,
                 senderAvatar: myAvatar,
                 text: text,
-                timestamp: ts
+                timestamp: ts,
+                status: currentChatType === 'private' ? 'sent' : 'sent'
             };
 
             const updates = {};
@@ -488,19 +572,26 @@
             } else {
                 const dmId = [myUid, targetUid].sort().join('_');
                 const newMsgKey = db.ref(`messages/private/${dmId}`).push().key;
+                msgData.messageId = newMsgKey;
+
                 updates[`messages/private/${dmId}/${newMsgKey}`] = msgData;
 
                 updates[`recent_chats/${myUid}/${targetUid}`] = {
                     timestamp: ts,
                     text: text,
                     unread: false,
-                    partnerName: targetName
+                    partnerName: targetName,
+                    messageId: newMsgKey,
+                    lastSenderUid: myUid
                 };
+
                 updates[`recent_chats/${targetUid}/${myUid}`] = {
                     timestamp: ts,
                     text: text,
                     unread: true,
-                    partnerName: myName
+                    partnerName: myName,
+                    messageId: newMsgKey,
+                    lastSenderUid: myUid
                 };
             }
 
@@ -521,20 +612,32 @@
         function renderMessage(msg) {
             const box = document.getElementById('messagesBox');
             const isMe = msg.senderUid === myUid;
-            
+
             const div = document.createElement('div');
             div.className = `message ${isMe ? 'sent' : 'received'}`;
-            
-            const timeString = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+            const timeString = msg.timestamp
+                ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : '';
+
+            let statusHTML = '';
+            if (isMe && currentChatType === 'private') {
+                if (msg.status === 'seen') {
+                    statusHTML = '<span class="msg-status seen" title="Seen">✓✓</span>';
+                } else if (msg.status === 'delivered') {
+                    statusHTML = '<span class="msg-status delivered" title="Delivered">✓✓</span>';
+                } else {
+                    statusHTML = '<span class="msg-status sent" title="Sent">✓</span>';
+                }
+            }
 
             div.innerHTML = `
                 ${!isMe ? `<div class="msg-sender">${escapeHTML(msg.senderName || 'Unknown')}</div>` : ''}
-                <div>${escapeHTML(msg.text)}</div>
-                <div class="msg-time">${timeString}</div>
+                <div>${escapeHTML(msg.text || '')}</div>
+                <div class="msg-time">${timeString}${statusHTML}</div>
             `;
 
             box.appendChild(div);
-            box.scrollTop = box.scrollHeight;
         }
 
         function escapeHTML(str) {
