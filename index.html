@@ -88,11 +88,43 @@
         .input-bar input { flex: 1; padding: 12px 15px; background: var(--bg-side); border: 1px solid var(--border-color); border-radius: 25px; color: #fff; font-size: 15px; outline: none; }
         .input-bar button { padding: 10px 20px; background: var(--accent); color: #fff; border: none; border-radius: 20px; font-size: 14px; font-weight: bold; cursor: pointer; transition: 0.2s; }
         .input-bar button:hover { opacity: 0.9; }
-
-        @media (max-width: 768px) {
-            .app-container { flex-direction: column; }
-            .sidebar { width: 100%; height: 35%; border-right: none; border-bottom: 1px solid var(--border-color); }
-            .chat-window { height: 65%; }
+    
+        .msg-action-btn {
+            border: 0;
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px 6px;
+            border-radius: 6px;
+            font-size: 14px;
+            min-width: 30px;
+            min-height: 28px;
+        }
+        .msg-action-btn:hover { background: rgba(255,255,255,.08); color: var(--text-primary); }
+        @media (hover: none), (pointer: coarse) {
+            .message-actions { display: flex; opacity: .95; }
+            .msg-action-btn { min-width: 34px; min-height: 32px; font-size: 15px; }
+        }
+        @media (max-width: 900px) {
+            body { align-items: stretch; overflow: hidden; }
+            .app-container { width:100%; height:100dvh; max-width:none; flex-direction:column; }
+            .sidebar { width:100%; height:34dvh; min-height:185px; border-right:none; border-bottom:1px solid var(--border-color); }
+            .chat-window { height:66dvh; min-height:0; }
+            .chat-header { padding:11px 13px; min-height:60px; }
+            .messages-box { padding:11px 9px; gap:8px; }
+            .message { max-width:86%; font-size:14px; }
+            .input-bar { padding:8px 9px calc(8px + env(safe-area-inset-bottom)); gap:7px; }
+            .input-bar input { min-width:0; font-size:16px; padding:11px 13px; }
+            .input-bar button { min-width:60px; padding:10px 13px; }
+            .user-profile-bar { padding:9px 11px; }
+            .chat-item { padding:9px 11px; }
+            .modal-card { width:calc(100% - 26px); max-width:420px; padding:21px 17px; }
+        }
+        @media (max-width:520px) {
+            .sidebar { height:31dvh; min-height:170px; }
+            .chat-window { height:69dvh; }
+            .avatar { width:38px; height:38px; }
+            .message { max-width:91%; }
         }
     </style>
 </head>
@@ -244,19 +276,32 @@
             switchChat('global', '🌐 গ্লোবাল চ্যাট রুম');
         }
 
-        function updateMyUI() {
-            document.getElementById('myProfileName').innerText = myName;
-            const avatarDiv = document.getElementById('mySidebarAvatar');
-            if (myAvatar.startsWith('http')) {
-                avatarDiv.innerHTML = '';
+        function renderAvatarElement(container, avatar, alt = 'Avatar') {
+            container.innerHTML = '';
+            const value = (avatar || '👤').trim();
+
+            if (/^https?:\/\//i.test(value)) {
                 const img = document.createElement('img');
-                img.src = myAvatar;
-                img.alt = 'Avatar';
-                avatarDiv.appendChild(img);
+                img.src = value;
+                img.alt = alt;
+                img.loading = 'lazy';
+                img.referrerPolicy = 'no-referrer';
+                img.onerror = () => { container.textContent = '👤'; };
+                container.appendChild(img);
             } else {
-                avatarDiv.textContent = myAvatar;
+                container.textContent = value;
             }
         }
+
+        function normalizeAvatarInput(value) {
+            return (value || '').trim() || '👤';
+        }
+
+        function updateMyUI() {
+            document.getElementById('myProfileName').innerText = myName;
+            renderAvatarElement(document.getElementById('mySidebarAvatar'), myAvatar, 'Avatar');
+        }
+
 
         // সেটিংস মডাল ওপেন/ক্লোজ
         function openSettings() {
@@ -271,35 +316,46 @@
 
         async function saveProfileChanges() {
             const newName = document.getElementById('editNameInput').value.trim();
-            const avatarInput = document.getElementById('editAvatarInput').value.trim();
-            const file = document.getElementById('editAvatarFile').files[0];
+            const newAvatar = normalizeAvatarInput(document.getElementById('editAvatarInput').value);
+
             if (!newName) {
                 alert("নাম খালি রাখা যাবে না!");
                 return;
             }
 
+            const saveButton = document.querySelector('#settingsOverlay .modal-card button');
+            if (saveButton) {
+                saveButton.disabled = true;
+                saveButton.textContent = 'সংরক্ষণ হচ্ছে...';
+            }
+
             try {
-                const newAvatar = file ? await uploadAvatar(file) : (avatarInput || '👤');
+                await db.ref(`users/${myUid}`).update({
+                    name: newName,
+                    avatar: newAvatar,
+                    lastSeen: firebase.database.ServerValue.TIMESTAMP
+                });
+
                 myName = newName;
                 myAvatar = newAvatar;
                 localStorage.setItem('pro_chat_name', myName);
                 localStorage.setItem('pro_chat_avatar', myAvatar);
 
-                await db.ref(`users/${myUid}`).update({
-                    name: myName,
-                    avatar: myAvatar
-                });
-
                 updateMyUI();
                 renderSidebar();
                 updateChatHeaderPresence();
                 closeSettings();
-                document.getElementById('editAvatarFile').value = '';
             } catch (error) {
                 console.error(error);
-                alert("প্রোফাইল আপডেট করা যায়নি। আবার চেষ্টা করুন।");
+                alert('Profile update করা যায়নি। Firebase connection/rules check করুন।');
+            } finally {
+                if (saveButton) {
+                    saveButton.disabled = false;
+                    saveButton.textContent = 'সংরক্ষণ করুন';
+                }
             }
         }
+
 
         async function uploadAvatar(file) {
             if (!file.type.startsWith('image/')) throw new Error('Invalid image');
@@ -520,8 +576,10 @@
         function deleteMessageForMe(chatPath, messageKey) {
             deletedMessages[messageLocalKey(chatPath, messageKey)] = true;
             saveDeletedMessages();
-            switchChat(currentChatType === 'global' ? 'global' : targetUid, targetName);
+            const el = document.querySelector(`.message[data-message-key="${CSS.escape(messageKey)}"]`);
+            if (el) el.remove();
         }
+
 
         function unsendMessage(chatPath, messageKey) {
             if (currentChatType !== 'private') {
@@ -529,16 +587,19 @@
                 return;
             }
 
-            const messageRef = db.ref(`${chatPath}/${messageKey}`);
-            messageRef.update({
+            db.ref(`${chatPath}/${messageKey}`).update({
                 deleted: true,
                 text: '',
                 unsentAt: firebase.database.ServerValue.TIMESTAMP
+            }).then(() => {
+                const el = document.querySelector(`.message[data-message-key="${CSS.escape(messageKey)}"]`);
+                if (el) el.innerHTML = '<div class="unsent-message">This message was unsent</div>';
             }).catch(error => {
                 console.error(error);
                 alert('Message unsend করা যায়নি।');
             });
         }
+
 
         function switchChat(type, title) {
             currentChatType = (type === 'global') ? 'global' : 'private';
@@ -655,6 +716,20 @@
                 });
         }
 
+        // Mobile-friendly long press to reveal message actions.
+        let longPressTimer = null;
+        document.addEventListener('touchstart', (e) => {
+            const message = e.target.closest('.message');
+            if (!message) return;
+            longPressTimer = setTimeout(() => {
+                document.querySelectorAll('.message-actions').forEach(a => a.style.display = 'none');
+                const actions = message.querySelector('.message-actions');
+                if (actions) actions.style.display = 'flex';
+            }, 500);
+        }, {passive:true});
+        document.addEventListener('touchend', () => clearTimeout(longPressTimer), {passive:true});
+        document.addEventListener('touchmove', () => clearTimeout(longPressTimer), {passive:true});
+
         function handleEnter(e) {
             if (e.key === 'Enter') sendMessage();
         }
@@ -662,9 +737,9 @@
         function renderMessage(msg, chatPath) {
             const box = document.getElementById('messagesBox');
             const isMe = msg.senderUid === myUid;
-
             const div = document.createElement('div');
             div.className = `message ${isMe ? 'sent' : 'received'}`;
+            if (msg._key) div.dataset.messageKey = msg._key;
 
             if (msg.deleted) {
                 div.innerHTML = `<div class="unsent-message">This message was unsent</div>`;
@@ -673,57 +748,59 @@
             }
 
             const timeString = msg.timestamp
-                ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                ? new Date(msg.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
                 : '';
 
             let statusHTML = '';
-            let detailHTML = '';
+            let statusTitle = '';
 
             if (isMe && currentChatType === 'private') {
                 if (msg.status === 'seen') {
                     const seenTime = msg.seenAt
-                        ? new Date(msg.seenAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                        : '';
-                    statusHTML = '<span class="msg-status seen" title="Seen">✓✓</span>';
-                    detailHTML = seenTime ? `<span style="margin-left:5px;">Seen ${seenTime}</span>` : '<span style="margin-left:5px;">Seen</span>';
+                        ? new Date(msg.seenAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+                        : 'Seen';
+                    statusHTML = '<span class="msg-status seen">✓✓</span>';
+                    statusTitle = `Seen ${seenTime}`;
                 } else if (msg.status === 'delivered') {
                     const deliveredTime = msg.deliveredAt
-                        ? new Date(msg.deliveredAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                        : '';
-                    statusHTML = '<span class="msg-status delivered" title="Delivered">✓✓</span>';
-                    detailHTML = deliveredTime ? `<span style="margin-left:5px;">Delivered ${deliveredTime}</span>` : '<span style="margin-left:5px;">Delivered</span>';
+                        ? new Date(msg.deliveredAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+                        : 'Delivered';
+                    statusHTML = '<span class="msg-status delivered">✓✓</span>';
+                    statusTitle = `Delivered ${deliveredTime}`;
                 } else {
-                    statusHTML = '<span class="msg-status sent" title="Sent">✓</span>';
-                    detailHTML = '<span style="margin-left:5px;">Sent</span>';
+                    statusHTML = '<span class="msg-status sent">✓</span>';
+                    statusTitle = 'Sent';
                 }
             }
 
             let actionsHTML = '';
-            if (isMe && currentChatType === 'private' && msg._key) {
-                actionsHTML = `
-                    <div class="message-actions">
-                        <button type="button" onclick="unsendMessage('${chatPath}', '${msg._key}')">Unsend</button>
-                        <button type="button" onclick="deleteMessageForMe('${chatPath}', '${msg._key}')">Delete</button>
-                    </div>
-                `;
-            } else if (!isMe && msg._key) {
-                actionsHTML = `
-                    <div class="message-actions">
-                        <button type="button" onclick="deleteMessageForMe('${chatPath}', '${msg._key}')">Delete</button>
-                    </div>
-                `;
+            if (msg._key) {
+                actionsHTML = `<div class="message-actions">
+                    ${isMe && currentChatType === 'private'
+                        ? `<button type="button" class="msg-action-btn unsend-btn" title="Unsend">↩</button>`
+                        : ''}
+                    <button type="button" class="msg-action-btn delete-btn" title="Delete">🗑</button>
+                </div>`;
             }
 
             div.innerHTML = `
                 ${actionsHTML}
                 ${!isMe ? `<div class="msg-sender">${escapeHTML(msg.senderName || 'Unknown')}</div>` : ''}
-                <div>${escapeHTML(msg.text || '')}</div>
-                <div class="msg-time">
-                    ${timeString}
-                    ${statusHTML}
-                    ${detailHTML}
-                </div>
+                <div class="msg-content">${escapeHTML(msg.text || '')}</div>
+                <div class="msg-time" title="${statusTitle}">${timeString}${statusHTML}</div>
             `;
+
+            const unsendBtn = div.querySelector('.unsend-btn');
+            if (unsendBtn) unsendBtn.onclick = (e) => {
+                e.stopPropagation();
+                unsendMessage(chatPath, msg._key);
+            };
+
+            const deleteBtn = div.querySelector('.delete-btn');
+            if (deleteBtn) deleteBtn.onclick = (e) => {
+                e.stopPropagation();
+                deleteMessageForMe(chatPath, msg._key);
+            };
 
             box.appendChild(div);
         }
