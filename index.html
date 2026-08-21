@@ -102,7 +102,16 @@
         .message:focus-within .message-actions { display: flex; gap: 3px; pointer-events: auto; }
 
         @media (hover: hover) and (pointer: fine) {
+            .message:hover .message-actions {
+                display: flex;
+                gap: 3px;
+                pointer-events: auto;
             }
+            .message-actions:hover {
+                display: flex;
+                pointer-events: auto;
+            }
+        }
         .message-actions button { border: none; background: transparent; color: var(--text-secondary); font-size: 11px; cursor: pointer; padding: 3px 5px; }
         .message-actions button:hover { color: var(--text-primary); }
         .unsent-message { color: var(--text-secondary); font-style: italic; }
@@ -820,6 +829,7 @@
         function deleteMessageForMe(chatPath, messageKey) {
             deletedMessages[messageLocalKey(chatPath, messageKey)] = true;
             saveDeletedMessages();
+
             const el = document.querySelector(`.message[data-message-key="${CSS.escape(messageKey)}"]`);
             if (el) el.remove();
         }
@@ -1091,11 +1101,39 @@
         }, {passive:true});
 
 
+        // messageActionPointerHandler: reliable desktop + mobile action handling
+        document.addEventListener('pointerup', (e) => {
+            const btn = e.target.closest('.unsend-btn, .delete-btn');
+            if (!btn) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            const message = btn.closest('.message');
+            if (!message) return;
+
+            const key = message.dataset.messageKey;
+            if (!key) return;
+
+            const chatPath = currentChatType === 'group'
+                ? `messages/groups/${targetUid}`
+                : `messages/private/${[myUid, targetUid].sort().join('_')}`;
+
+            if (btn.classList.contains('unsend-btn')) {
+                unsendMessage(chatPath, key);
+            } else {
+                deleteMessageForMe(chatPath, key);
+            }
+        }, true);
+
         document.addEventListener('click', (e) => {
             const btn = e.target.closest('.unsend-btn, .delete-btn');
             if (!btn) return;
             e.preventDefault();
             e.stopPropagation();
+
+            // Pointer devices are handled by pointerup above.
+            if (window.PointerEvent && e.detail > 0) return;
 
             const message = btn.closest('.message');
             if (!message) return;
@@ -1604,7 +1642,7 @@
             let actionsHTML = '';
             if (msg._key) {
                 actionsHTML = `<div class="message-actions">
-                    ${isMe && currentChatType === 'private'
+                    ${isMe && (currentChatType === 'private' || currentChatType === 'group')
                         ? `<button type="button" class="msg-action-btn unsend-btn" title="Unsend">↩</button>`
                         : ''}
                     <button type="button" class="msg-action-btn delete-btn" title="Delete">🗑</button>
