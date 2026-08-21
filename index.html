@@ -76,6 +76,11 @@
         .msg-status.sent { color: var(--text-secondary); }
         .msg-status.delivered { color: var(--text-secondary); }
         .msg-status.seen { color: #53bdeb; }
+        .message-actions { display: none; position: absolute; top: 4px; right: 5px; background: var(--panel); border-radius: 6px; padding: 3px; z-index: 2; box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+        .message:hover .message-actions { display: flex; gap: 3px; }
+        .message-actions button { border: none; background: transparent; color: var(--text-secondary); font-size: 11px; cursor: pointer; padding: 3px 5px; }
+        .message-actions button:hover { color: var(--text-primary); }
+        .unsent-message { color: var(--text-secondary); font-style: italic; }
         .chat-header-info .presence { color: var(--text-secondary); }
 
         /* Message Input */
@@ -99,7 +104,7 @@
             <h2>RoomChat Pro 💬</h2>
             <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 15px;">চ্যাট শুরু করতে আপনার নাম এবং প্রোফাইল পিকচারের লিংক (বা ইমোজি) দিন</p>
             <input type="text" id="regNameInput" placeholder="আপনার নাম..." autocomplete="off">
-            <input type="text" id="regAvatarInput" placeholder="প্রোফাইল ছবির লিংক (ঐচ্ছিক) বা ইমোজি 👤" autocomplete="off">
+            <input type="text" id="regAvatarInput" placeholder="ছবির লিংক অথবা emoji 😀 👤 🚀" autocomplete="off">
             <div style="margin:8px 0;color:var(--text-secondary);font-size:12px;">অথবা ছবি আপলোড করুন</div>
             <input type="file" id="regAvatarFile" accept="image/*" style="width:100%;color:var(--text-secondary);font-size:13px;margin:4px 0 8px;">
             <button onclick="registerUser()">অ্যাকাউন্ট তৈরি করুন</button>
@@ -191,6 +196,7 @@
         let onlineUsers = {};
         let recentChats = {};
         let allUserProfiles = {};
+        let deletedMessages = JSON.parse(localStorage.getItem('pro_chat_deleted_messages') || '{}');
 
         window.onload = () => {
             if (!myName) {
@@ -377,14 +383,18 @@
 
                         // Recipient's app has received the recent-chat update.
                         if (chat.unread) {
-                            messageRef.child('status').transaction(current => {
-                                return current === 'seen' ? 'seen' : 'delivered';
-                            });
+                            messageRef.update({
+                                status: 'delivered',
+                                deliveredAt: firebase.database.ServerValue.TIMESTAMP
+                            }).catch(console.error);
                         }
 
                         // If this chat is currently open, mark incoming message as seen.
                         if (currentChatType === 'private' && targetUid === uid && chat.unread) {
-                            messageRef.child('status').set('seen');
+                            messageRef.update({
+                                status: 'seen',
+                                seenAt: firebase.database.ServerValue.TIMESTAMP
+                            }).catch(console.error);
                             db.ref(`recent_chats/${myUid}/${uid}/unread`).set(false);
                         }
                     }
@@ -499,6 +509,37 @@
             });
         }
 
+        function saveDeletedMessages() {
+            localStorage.setItem('pro_chat_deleted_messages', JSON.stringify(deletedMessages));
+        }
+
+        function messageLocalKey(chatPath, messageKey) {
+            return `${chatPath}/${messageKey}`;
+        }
+
+        function deleteMessageForMe(chatPath, messageKey) {
+            deletedMessages[messageLocalKey(chatPath, messageKey)] = true;
+            saveDeletedMessages();
+            switchChat(currentChatType === 'global' ? 'global' : targetUid, targetName);
+        }
+
+        function unsendMessage(chatPath, messageKey) {
+            if (currentChatType !== 'private') {
+                alert('Global chat message unsend করা এই version-এ disabled.');
+                return;
+            }
+
+            const messageRef = db.ref(`${chatPath}/${messageKey}`);
+            messageRef.update({
+                deleted: true,
+                text: '',
+                unsentAt: firebase.database.ServerValue.TIMESTAMP
+            }).catch(error => {
+                console.error(error);
+                alert('Message unsend করা যায়নি।');
+            });
+        }
+
         function switchChat(type, title) {
             currentChatType = (type === 'global') ? 'global' : 'private';
             targetUid = (type === 'global') ? null : type;
@@ -528,23 +569,32 @@
             activeListenerRef.on('value', (snapshot) => {
                 messagesBox.innerHTML = '';
                 snapshot.forEach(child => {
-                    const msg = child.val();
+                    const msg = child.val() || {};
                     msg._key = child.key;
+
+                    if (deletedMessages[messageLocalKey(chatPath, child.key)]) return;
 
                     // Opening the conversation means incoming messages are seen.
                     if (currentChatType === 'private' &&
                         msg.senderUid === targetUid &&
+                        !msg.deleted &&
                         msg.status !== 'seen') {
-                        db.ref(`${chatPath}/${child.key}/status`).set('seen');
+                        db.ref(`${chatPath}/${child.key}`).update({
+                            status: 'seen',
+                            seenAt: firebase.database.ServerValue.TIMESTAMP
+                        });
                     }
 
-                    renderMessage(msg);
+                    renderMessage(msg, chatPath);
                 });
             });
 
             // Mark the latest recent message as seen when opening the chat.
             if (currentChatType === 'private' && recentChats[targetUid]?.messageId) {
-                db.ref(`messages/private/${[myUid, targetUid].sort().join('_')}/${recentChats[targetUid].messageId}/status`).set('seen');
+                db.ref(`messages/private/${[myUid, targetUid].sort().join('_')}/${recentChats[targetUid].messageId}`).update({
+                    status: 'seen',
+                    seenAt: firebase.database.ServerValue.TIMESTAMP
+                });
                 db.ref(`recent_chats/${myUid}/${targetUid}/unread`).set(false);
             }
         }
@@ -609,32 +659,70 @@
             if (e.key === 'Enter') sendMessage();
         }
 
-        function renderMessage(msg) {
+        function renderMessage(msg, chatPath) {
             const box = document.getElementById('messagesBox');
             const isMe = msg.senderUid === myUid;
 
             const div = document.createElement('div');
             div.className = `message ${isMe ? 'sent' : 'received'}`;
 
+            if (msg.deleted) {
+                div.innerHTML = `<div class="unsent-message">This message was unsent</div>`;
+                box.appendChild(div);
+                return;
+            }
+
             const timeString = msg.timestamp
                 ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 : '';
 
             let statusHTML = '';
+            let detailHTML = '';
+
             if (isMe && currentChatType === 'private') {
                 if (msg.status === 'seen') {
+                    const seenTime = msg.seenAt
+                        ? new Date(msg.seenAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : '';
                     statusHTML = '<span class="msg-status seen" title="Seen">✓✓</span>';
+                    detailHTML = seenTime ? `<span style="margin-left:5px;">Seen ${seenTime}</span>` : '<span style="margin-left:5px;">Seen</span>';
                 } else if (msg.status === 'delivered') {
+                    const deliveredTime = msg.deliveredAt
+                        ? new Date(msg.deliveredAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : '';
                     statusHTML = '<span class="msg-status delivered" title="Delivered">✓✓</span>';
+                    detailHTML = deliveredTime ? `<span style="margin-left:5px;">Delivered ${deliveredTime}</span>` : '<span style="margin-left:5px;">Delivered</span>';
                 } else {
                     statusHTML = '<span class="msg-status sent" title="Sent">✓</span>';
+                    detailHTML = '<span style="margin-left:5px;">Sent</span>';
                 }
             }
 
+            let actionsHTML = '';
+            if (isMe && currentChatType === 'private' && msg._key) {
+                actionsHTML = `
+                    <div class="message-actions">
+                        <button type="button" onclick="unsendMessage('${chatPath}', '${msg._key}')">Unsend</button>
+                        <button type="button" onclick="deleteMessageForMe('${chatPath}', '${msg._key}')">Delete</button>
+                    </div>
+                `;
+            } else if (!isMe && msg._key) {
+                actionsHTML = `
+                    <div class="message-actions">
+                        <button type="button" onclick="deleteMessageForMe('${chatPath}', '${msg._key}')">Delete</button>
+                    </div>
+                `;
+            }
+
             div.innerHTML = `
+                ${actionsHTML}
                 ${!isMe ? `<div class="msg-sender">${escapeHTML(msg.senderName || 'Unknown')}</div>` : ''}
                 <div>${escapeHTML(msg.text || '')}</div>
-                <div class="msg-time">${timeString}${statusHTML}</div>
+                <div class="msg-time">
+                    ${timeString}
+                    ${statusHTML}
+                    ${detailHTML}
+                </div>
             `;
 
             box.appendChild(div);
