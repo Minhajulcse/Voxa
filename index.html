@@ -1025,6 +1025,29 @@
             clearTimeout(longPressTimer);
         }, {passive:true});
 
+
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('.unsend-btn, .delete-btn');
+            if (!btn) return;
+            e.preventDefault();
+            e.stopPropagation();
+
+            const message = btn.closest('.message');
+            if (!message) return;
+            const key = message.dataset.messageKey;
+            if (!key) return;
+
+            const chatPath = currentChatType === 'group'
+                ? `messages/groups/${targetUid}`
+                : `messages/private/${[myUid, targetUid].sort().join('_')}`;
+
+            if (btn.classList.contains('unsend-btn')) {
+                unsendMessage(chatPath, key);
+            } else {
+                deleteMessageForMe(chatPath, key);
+            }
+        }, true);
+
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.message-actions')) {
                 hideAllMessageActions();
@@ -1261,6 +1284,39 @@
             if (e.key === 'Enter') sendMessage();
         }
 
+        function watchMessageStatus(chatPath, messageKey, messageElement) {
+            const ref = db.ref(`${chatPath}/${messageKey}`);
+            const handler = snapshot => {
+                const msg = snapshot.val();
+                if (!msg || !messageElement || !messageElement.isConnected) return;
+
+                const statusEl = messageElement.querySelector('.msg-status');
+                const timeEl = messageElement.querySelector('.msg-time');
+                if (!statusEl || !timeEl) return;
+
+                let title = 'Sent';
+                if (msg.status === 'seen') {
+                    statusEl.className = 'msg-status seen';
+                    statusEl.textContent = '✓✓';
+                    title = msg.seenAt
+                        ? `Seen ${new Date(msg.seenAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`
+                        : 'Seen';
+                } else if (msg.status === 'delivered') {
+                    statusEl.className = 'msg-status delivered';
+                    statusEl.textContent = '✓✓';
+                    title = msg.deliveredAt
+                        ? `Delivered ${new Date(msg.deliveredAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`
+                        : 'Delivered';
+                } else {
+                    statusEl.className = 'msg-status sent';
+                    statusEl.textContent = '✓';
+                }
+                timeEl.title = title;
+            };
+            ref.on('value', handler);
+            return () => ref.off('value', handler);
+        }
+
         function renderMessage(msg, chatPath) {
             const box = document.getElementById('messagesBox');
             const isMe = msg.senderUid === myUid;
@@ -1316,26 +1372,11 @@
                 <div class="msg-content">${escapeHTML(msg.text || '')}</div>
                 <div class="msg-time" title="${statusTitle}">${timeString}${statusHTML}</div>
             `;
-
-            const unsendBtn = div.querySelector('.unsend-btn');
-            if (unsendBtn) {
-                unsendBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    unsendMessage(chatPath, msg._key);
-                });
-            }
-
-            const deleteBtn = div.querySelector('.delete-btn');
-            if (deleteBtn) {
-                deleteBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    deleteMessageForMe(chatPath, msg._key);
-                });
-            }
-
             box.appendChild(div);
+
+            if (isMe && (currentChatType === 'private' || currentChatType === 'group') && msg._key) {
+                watchMessageStatus(chatPath, msg._key, div);
+            }
         }
 
         function escapeHTML(str) {
